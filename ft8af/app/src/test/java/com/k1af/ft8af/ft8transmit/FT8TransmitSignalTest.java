@@ -353,20 +353,33 @@ public class FT8TransmitSignalTest {
     @Test
     public void followTarget_splitOn_holdOff_follows() {
         assertThat(FT8TransmitSignal.shouldFollowTargetFreq(
-                /*synFrequency*/ true, /*holdTxFreq*/ false)).isTrue();
+                /*synFrequency*/ true, /*holdTxFreq*/ false,
+                /*targetFreqHz*/ 300f, /*minAutoTxFreqHz*/ 0)).isTrue();
     }
 
     @Test
     public void followTarget_splitOn_holdOn_holds() {
         // The reported request: keep my TX offset even with split on.
-        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(true, true)).isFalse();
+        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(true, true, 1500f, 0)).isFalse();
     }
 
     @Test
     public void followTarget_splitOff_neverFollows() {
         // Without split there's nothing to follow, hold flag irrelevant.
-        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(false, false)).isFalse();
-        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(false, true)).isFalse();
+        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(false, false, 1500f, 0)).isFalse();
+        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(false, true, 1500f, 0)).isFalse();
+    }
+
+    @Test
+    public void followTarget_minAutoTxFloor_blocksTargetsBelowIt() {
+        // A rig that squares the TX audio must not be dragged onto a low
+        // offset whose harmonics land inside the TX filter.
+        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(true, false, 800f, 1500)).isFalse();
+        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(true, false, 1500f, 1500)).isTrue();
+        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(true, false, 2200f, 1500)).isTrue();
+        // The floor never turns a held/non-split TX into a follow.
+        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(true, true, 2200f, 1500)).isFalse();
+        assertThat(FT8TransmitSignal.shouldFollowTargetFreq(false, false, 2200f, 1500)).isFalse();
     }
 
     // ---- shouldStopAfterOneShot ---------------------------------------------

@@ -676,7 +676,8 @@ public class FT8TransmitSignal {
         // Same-frequency mode moves our TX offset onto the station we answer — unless
         // "Hold TX freq" is on (WSJT-X "Hold Tx Freq"), in which case we keep calling
         // on our own offset. Tester reported the auto-move felt inverted.
-        if (shouldFollowTargetFreq(GeneralVariables.synFrequency, GeneralVariables.holdTxFreq)) {
+        if (shouldFollowTargetFreq(GeneralVariables.synFrequency, GeneralVariables.holdTxFreq,
+                transmitCallsign.frequency, GeneralVariables.minAutoTxFreqHz)) {
             setBaseFrequency(transmitCallsign.frequency);
         }
 
@@ -700,10 +701,16 @@ public class FT8TransmitSignal {
      * Whether to move our TX offset onto the frequency of the station we're about to
      * answer. True only in TX=RX (synFrequency) mode AND when "Hold TX freq" is off —
      * holding TX freq (WSJT-X "Hold Tx Freq") keeps us calling on our own offset.
+     * A target below the "minimum auto TX audio frequency" floor (0 = off) is not
+     * followed either: we answer split from our own offset instead.
      * Pure decision logic so it can be unit-tested without the Android runtime.
      */
-    static boolean shouldFollowTargetFreq(boolean synFrequency, boolean holdTxFreq) {
-        return synFrequency && !holdTxFreq;
+    static boolean shouldFollowTargetFreq(boolean synFrequency, boolean holdTxFreq,
+                                          float targetFreqHz, int minAutoTxFreqHz) {
+        if (!synFrequency || holdTxFreq) {
+            return false;
+        }
+        return minAutoTxFreqHz <= 0 || targetFreqHz >= minAutoTxFreqHz;
     }
 
     /**
@@ -2625,7 +2632,8 @@ public class FT8TransmitSignal {
                 && clearFrequencyFinder.shouldRelocate(
                         GeneralVariables.getBaseFrequency(), newestUtc)) {
             Float pick = clearFrequencyFinder.selectClearOffset(
-                    GeneralVariables.getBaseFrequency());
+                    GeneralVariables.getBaseFrequency(),
+                    GeneralVariables.minAutoTxFreqHz);
             if (pick != null) {
                 applyClearCqOffset(pick, newestUtc, "occupied");
             }
@@ -2663,7 +2671,8 @@ public class FT8TransmitSignal {
             return;
         }
         Float pick = clearFrequencyFinder.selectClearOffset(
-                GeneralVariables.getBaseFrequency());
+                GeneralVariables.getBaseFrequency(),
+                GeneralVariables.minAutoTxFreqHz);
         if (pick != null) {
             applyClearCqOffset(pick, UtcTimer.getSystemTime(), "cq-start");
         }

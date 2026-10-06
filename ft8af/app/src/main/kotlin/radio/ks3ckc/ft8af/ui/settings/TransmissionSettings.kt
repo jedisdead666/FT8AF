@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.k1af.ft8af.GeneralVariables
 import com.k1af.ft8af.MainViewModel
 import com.k1af.ft8af.R
+import com.k1af.ft8af.ft8transmit.ClearFrequencyFinder
 import com.k1af.ft8af.ft8transmit.MeterProtectionController
 import com.k1af.ft8af.ft8transmit.TuneController
 import com.k1af.ft8af.ft8transmit.TuneMethod
@@ -93,6 +94,7 @@ fun TransmissionSettings(
 ) {
     var synFrequency by remember { mutableStateOf(GeneralVariables.synFrequency) }
     var holdTxFreq by remember { mutableStateOf(GeneralVariables.holdTxFreq) }
+    var minAutoTxFreqHz by remember { mutableIntStateOf(GeneralVariables.minAutoTxFreqHz) }
     var clearOnBandModeChange by remember { mutableStateOf(GeneralVariables.clearOnBandModeChange) }
     var watchdogMs by remember { mutableIntStateOf(GeneralVariables.launchSupervision) }
     var noReplyLimit by remember { mutableIntStateOf(GeneralVariables.noReplyLimit) }
@@ -123,6 +125,7 @@ fun TransmissionSettings(
     var showWatchdog by remember { mutableStateOf(false) }
     var showStopAfter by remember { mutableStateOf(false) }
     var showMax73 by remember { mutableStateOf(false) }
+    var showMinAutoTxFreq by remember { mutableStateOf(false) }
     var showTuneMethod by remember { mutableStateOf(false) }
 
     // Index == TuneMethod.AUTOMATIC/INTERNAL/TONE
@@ -209,6 +212,30 @@ fun TransmissionSettings(
         )
     }
 
+    // -- Minimum auto TX audio frequency picker --
+    if (showMinAutoTxFreq) {
+        val choices = ClearFrequencyFinder.minAutoTxChoicesHz()
+        val labels = choices.map { hz ->
+            if (hz == 0) stringResource(R.string.common_off)
+            else stringResource(R.string.settings_hz_format, hz)
+        }
+        ListPickerDialog(
+            title = stringResource(R.string.settings_min_auto_tx_freq),
+            items = labels,
+            selectedIndex = ClearFrequencyFinder.minAutoTxChoiceIndex(minAutoTxFreqHz),
+            onDismiss = { showMinAutoTxFreq = false },
+            onSelect = { index ->
+                showMinAutoTxFreq = false
+                val hz = choices[index]
+                GeneralVariables.minAutoTxFreqHz = hz
+                minAutoTxFreqHz = hz
+                mainViewModel.databaseOpr.writeConfig(
+                    "minAutoTxFreq", hz.toString(), null,
+                )
+            },
+        )
+    }
+
     // -- Max 73 Sends Picker --
     if (showMax73) {
         val max73Options = mutableListOf(stringResource(R.string.settings_max_73_auto))
@@ -265,6 +292,15 @@ fun TransmissionSettings(
                                 "holdTxFreq", if (checked) "1" else "0", null,
                             )
                         },
+                    )
+                    SectionDivider()
+                    SettingsRow(
+                        label = stringResource(R.string.settings_min_auto_tx_freq),
+                        description = stringResource(R.string.settings_min_auto_tx_freq_desc),
+                        value = if (minAutoTxFreqHz == 0) stringResource(R.string.common_off)
+                        else stringResource(R.string.settings_hz_format, minAutoTxFreqHz),
+                        showChevron = true,
+                        onClick = { showMinAutoTxFreq = true },
                     )
                     SectionDivider()
                     SettingsRow(

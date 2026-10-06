@@ -190,6 +190,98 @@ public class ClearFrequencyFinderTest {
 
     // ---- the CQ-idle gate (wiring predicate on FT8TransmitSignal) --------------
 
+    // ---- minimum auto TX audio frequency (operator floor) --------------------
+
+    @Test
+    public void floor_keepsPicksAtOrAboveIt() {
+        ClearFrequencyFinder f = finder();
+        // Busy above the floor, wide open below it: without a floor the pick
+        // would land in the low half.
+        for (float hz = 1500f; hz <= 2700f; hz += 100f) {
+            occupy(f, hz, T0);
+        }
+        assertThat(f.selectClearOffset(1510f)).isLessThan(1500f);
+
+        ClearFrequencyFinder floored = finder();
+        occupy(floored, 2000f, T0);
+        Float pick = floored.selectClearOffset(2010f, 1500f);
+        assertThat(pick).isNotNull();
+        assertThat(pick).isAtLeast(1500f);
+        assertThat(floored.isOccupied(pick)).isFalse();
+    }
+
+    @Test
+    public void floor_staysPutWhenNothingAboveItIsBetter() {
+        ClearFrequencyFinder f = finder();
+        // Everything from the floor up is occupied; the free space below the
+        // floor must not be used, so there is nowhere better to go.
+        for (float hz = 1450f; hz <= 2800f; hz += 50f) {
+            occupy(f, hz, T0);
+        }
+        assertThat(f.selectClearOffset(2000f, 1500f)).isNull();
+    }
+
+    @Test
+    public void floor_movesAClearCurrentOffsetThatSitsBelowIt() {
+        ClearFrequencyFinder f = finder();
+        occupy(f, 2500f, T0);
+        // 800 Hz is clear, and without a floor that means "stay"...
+        assertThat(f.selectClearOffset(800f)).isNull();
+        // ...but it is below the floor, so the picker lifts it out.
+        Float pick = f.selectClearOffset(800f, 1500f);
+        assertThat(pick).isNotNull();
+        assertThat(pick).isAtLeast(1500f);
+        assertThat(f.isOccupied(pick)).isFalse();
+    }
+
+    @Test
+    public void floor_appliesEvenWithNoHistory() {
+        ClearFrequencyFinder f = finder();
+        Float pick = f.selectClearOffset(800f, 1500f);
+        // Nothing heard: the middle of the allowed range, not the floor edge.
+        assertThat(pick).isWithin(10f).of((1500f + 2750f) / 2f);
+        // An offset already above the floor still needs history to move.
+        assertThat(f.selectClearOffset(1800f, 1500f)).isNull();
+    }
+
+    @Test
+    public void floor_atOrBelowTheGridMinimumIsNoFloor() {
+        ClearFrequencyFinder f = finder();
+        // "Off" (0) must behave exactly like the unfloored call, including
+        // for an offset under the grid minimum and with no history.
+        assertThat(f.selectClearOffset(100f, 0f)).isNull();
+        occupy(f, 1500f, T0);
+        assertThat(f.selectClearOffset(1510f, 0f)).isEqualTo(f.selectClearOffset(1510f));
+        assertThat(f.selectClearOffset(100f, 0f)).isNull();
+    }
+
+    @Test
+    public void floor_isCappedSoACandidateAlwaysFits() {
+        ClearFrequencyFinder f = finder();
+        Float pick = f.selectClearOffset(800f, 9000f);
+        assertThat(pick).isNotNull();
+        assertThat(pick + ClearFrequencyFinder.SIGNAL_BANDWIDTH_HZ)
+                .isAtMost(ClearFrequencyFinder.DEFAULT_MAX_OFFSET_HZ);
+    }
+
+    @Test
+    public void minAutoTxChoices_snapStoredValuesOntoTheList() {
+        int[] choices = ClearFrequencyFinder.minAutoTxChoicesHz();
+        assertThat(choices[0]).isEqualTo(0); // index 0 is "Off"
+        for (int i = 0; i < choices.length; i++) {
+            assertThat(ClearFrequencyFinder.minAutoTxChoiceIndex(choices[i])).isEqualTo(i);
+            assertThat(ClearFrequencyFinder.clampMinAutoTxHz(choices[i])).isEqualTo(choices[i]);
+        }
+        // Garbage from a settings import: negative, off-grid, oversized.
+        assertThat(ClearFrequencyFinder.clampMinAutoTxHz(-5)).isEqualTo(0);
+        assertThat(ClearFrequencyFinder.clampMinAutoTxHz(1499)).isEqualTo(1000);
+        assertThat(ClearFrequencyFinder.clampMinAutoTxHz(99_999))
+                .isEqualTo(choices[choices.length - 1]);
+        // The accessor hands out a copy, not the backing array.
+        choices[0] = 123;
+        assertThat(ClearFrequencyFinder.minAutoTxChoicesHz()[0]).isEqualTo(0);
+    }
+
     @Test
     public void autoPickGate_requiresEnabledActivatedIdleCq() {
         TransmitCallsign cq = new TransmitCallsign(1, 0, "CQ", 0);

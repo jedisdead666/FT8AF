@@ -30,6 +30,40 @@ public final class ClearFrequencyFinder {
     public static final float PREFERRED_CENTER_HZ = 1500f;
     public static final long DEFAULT_MOVE_HOLDDOWN_MS = 45_000L;
 
+    /**
+     * Choices for the "minimum auto TX audio frequency" setting, in Hz; 0 is
+     * off (no floor beyond {@link #DEFAULT_MIN_OFFSET_HZ}). A rig that clips
+     * or squares the TX audio radiates harmonics of the tone: with a ~3 kHz
+     * TX filter the 3rd harmonic is rejected above 1000 Hz and the 2nd above
+     * 1500 Hz, so the floor keeps automatic picks out of the low offsets
+     * whose harmonics would still land in the passband.
+     */
+    private static final int[] MIN_AUTO_TX_CHOICES_HZ = {0, 500, 1000, 1500, 2000};
+
+    /** A copy of the setting's choices (index 0 = off). */
+    public static int[] minAutoTxChoicesHz() {
+        return MIN_AUTO_TX_CHOICES_HZ.clone();
+    }
+
+    /**
+     * Index of the largest choice not above {@code hz} — maps any stored or
+     * imported value (negative, off-grid, oversized) onto a valid choice.
+     */
+    public static int minAutoTxChoiceIndex(int hz) {
+        int index = 0;
+        for (int i = 0; i < MIN_AUTO_TX_CHOICES_HZ.length; i++) {
+            if (MIN_AUTO_TX_CHOICES_HZ[i] <= hz) {
+                index = i;
+            }
+        }
+        return index;
+    }
+
+    /** Snap a stored/imported setting value onto one of the choices. */
+    public static int clampMinAutoTxHz(int hz) {
+        return MIN_AUTO_TX_CHOICES_HZ[minAutoTxChoiceIndex(hz)];
+    }
+
     /** One observed signal: base offset + the slot UTC it was decoded in. */
     private static final class Observation {
         final float freqHz;
@@ -148,14 +182,28 @@ public final class ClearFrequencyFinder {
      *     current offset's clearance.
      */
     public synchronized Float selectClearOffset(float currentOffsetHz) {
-        if (history.isEmpty()) {
+        return selectClearOffset(currentOffsetHz, minOffsetHz);
+    }
+
+    /**
+     * {@link #selectClearOffset(float)} with an operator floor: no candidate
+     * below {@code floorHz} is considered, and a current offset below the floor
+     * always warrants a move (even with no history, and even when it is clear)
+     * — the floor exists because the low offsets are unusable on this rig, not
+     * because they are busy. A floor at or below the grid minimum is no floor.
+     */
+    public synchronized Float selectClearOffset(float currentOffsetHz, float floorHz) {
+        float lo = Math.max(minOffsetHz,
+                Math.min(floorHz, maxOffsetHz - SIGNAL_BANDWIDTH_HZ));
+        boolean belowFloor = lo > minOffsetHz && currentOffsetHz < lo;
+        if (history.isEmpty() && !belowFloor) {
             return null;
         }
-        float currentClearance = clearanceAt(currentOffsetHz);
+        float currentClearance = belowFloor ? -1f : clearanceAt(currentOffsetHz);
         if (currentClearance > 0f) {
             return null; // already clear: a gratuitous QSY loses spotted callers
         }
-        Candidate best = bestCandidate();
+        Candidate best = bestCandidate(lo);
         if (best == null || best.clearance <= currentClearance) {
             return null; // whole band as bad or worse: stay put
         }
@@ -173,19 +221,24 @@ public final class ClearFrequencyFinder {
     }
 
     /**
-     * Best candidate on the grid: max clearance, ties broken toward the band
-     * centre (1500 Hz, flat in every rig's passband), then toward the lower
-     * offset for determinism.
+     * Best candidate on the grid from {@code lo} up: max clearance, ties broken
+     * toward the band centre (1500 Hz, flat in every rig's passband), then
+     * toward the lower offset for determinism. With a floor raised above the
+     * grid minimum the tie-break targets the middle of what is left instead,
+     * so the pick doesn't hug the floor it was told to stay clear of.
      */
-    private Candidate bestCandidate() {
+    private Candidate bestCandidate(float lo) {
+        float preferred = lo > minOffsetHz
+                ? (lo + maxOffsetHz - SIGNAL_BANDWIDTH_HZ) / 2f
+                : PREFERRED_CENTER_HZ;
         Candidate best = null;
-        for (float f = minOffsetHz; f + SIGNAL_BANDWIDTH_HZ <= maxOffsetHz; f += stepHz) {
+        for (float f = lo; f + SIGNAL_BANDWIDTH_HZ <= maxOffsetHz; f += stepHz) {
             float clearance = clearanceAt(f);
             if (best == null
                     || clearance > best.clearance
                     || (clearance == best.clearance
-                        && Math.abs(f - PREFERRED_CENTER_HZ)
-                            < Math.abs(best.offsetHz - PREFERRED_CENTER_HZ))) {
+                        && Math.abs(f - preferred)
+                            < Math.abs(best.offsetHz - preferred))) {
                 best = new Candidate(f, clearance);
             }
         }

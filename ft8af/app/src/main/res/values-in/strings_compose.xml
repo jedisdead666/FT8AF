@@ -580,6 +580,8 @@
     <string name="cq_offset_moved">Offset CQ dipindahkan ke tempat kosong: %1$d Hz</string>
     <string name="settings_auto_clear_tx">Offset TX kosong otomatis</string>
     <string name="settings_auto_clear_tx_desc">Saat memanggil CQ, memilih tempat kosong dari aktivitas band terkini dan berpindah jika terisi</string>
+    <string name="settings_min_auto_tx_freq">Frekuensi audio TX otomatis minimum</string>
+    <string name="settings_min_auto_tx_freq_desc">Offset audio terendah yang akan dipilih aplikasi sendiri (pemilih offset kosong, ikuti TX=RX). Naikkan jika radio Anda memotong atau mengubah audio TX menjadi gelombang kotak, agar harmonik jatuh di luar filter TX</string>
     <string name="tune_content_description">Tune: memulai tuner radio atau memancarkan gelombang pembawa kontinu untuk penalaan antena</string>
     <string name="tune_stopped_timeout">Tune dihentikan setelah %1$d dtk</string>
     <string name="tune_blocked_tx">Hentikan CQ/QSO sebelum menggunakan Tune</string>

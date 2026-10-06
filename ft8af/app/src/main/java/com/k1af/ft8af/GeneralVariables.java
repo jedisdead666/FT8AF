@@ -177,6 +177,12 @@ public class GeneralVariables {
     //the decode-delivery thread inside recordBandActivity.
     public static volatile boolean autoClearTxFreq = false;
 
+    //Floor (Hz) for automatically chosen TX audio offsets — the clear-CQ picker
+    //and the TX=RX follow. 0 = off. For rigs whose TX audio is clipped/squared,
+    //where low offsets put harmonics inside the TX passband. One of
+    //ClearFrequencyFinder.minAutoTxChoicesHz(). volatile: same threads as above.
+    public static volatile int minAutoTxFreqHz = 0;
+
     //Tune button (issue #408): hard cap on a single tune carrier in seconds
     //(clamped by TuneController), whether the tune level is independent of the
     //FT8 drive, the global independent level (0..100), and the per-band

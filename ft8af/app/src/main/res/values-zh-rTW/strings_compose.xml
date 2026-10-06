@@ -537,6 +537,8 @@
     <string name="cq_offset_moved">CQ頻偏已移至空閒位置：%1$d Hz</string>
     <string name="settings_auto_clear_tx">自動選擇空閒TX頻偏</string>
     <string name="settings_auto_clear_tx_desc">呼叫CQ時根據近期頻段活動選擇空閒位置，被佔用時自動移開</string>
+    <string name="settings_min_auto_tx_freq">自動TX音訊頻率下限</string>
+    <string name="settings_min_auto_tx_freq_desc">應用程式自動選擇的最低音訊頻偏（空閒頻偏選擇、TX=RX跟隨）。如果電台會削波或把TX音訊變成方波，請調高此值，使諧波落在TX濾波器之外</string>
     <string name="tune_content_description">Tune：啟動電台調諧器或發射連續載波用於天線調諧</string>
     <string name="tune_stopped_timeout">Tune已在%1$d秒後停止</string>
     <string name="tune_blocked_tx">使用Tune前請先停止CQ/QSO</string>

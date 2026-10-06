@@ -79,6 +79,17 @@ tunables below are constructor parameters with the defaults shown.
 - Off by default (config key `autoClearTxFreq`); the manual waterfall tap
   always wins — it just becomes the new "current" offset that the keep-current
   bias protects.
+- **Minimum auto TX audio frequency** (config key `minAutoTxFreq`, Hz, 0 =
+  off; choices 500/1000/1500/2000). A rig that clips or squares the TX audio
+  radiates harmonics of the tone, and from a low offset they still fall inside
+  the ~3 kHz TX filter (3rd harmonic below 1000 Hz, 2nd below 1500 Hz). With a
+  floor set, the picker scans only from the floor up, tie-breaks toward the
+  middle of the remaining range, and at CQ start lifts a current offset that
+  sits below the floor even when it is clear or nothing has been decoded yet.
+  The mid-CQ re-check still fires only on "occupied", so a deliberate waterfall
+  tap below the floor survives until the next CQ start. The same floor stops
+  the TX=RX follow from moving onto a station below it (we answer split from
+  our own offset). Fox/Hound QSYs are protocol-mandated and ignore it.
 
 ## Validation
 
