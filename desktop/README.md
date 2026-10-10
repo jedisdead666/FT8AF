@@ -117,6 +117,13 @@ interpreting Linux's default asserted DTR state as PTT. RTS or DTR PTT does not
 use the keepalive. Select the DE-19 (or other interface) capture and playback
 devices separately for FT8 audio; the serial CAT cable does not carry audio.
 
+### Receive timing
+
+Desktop 0.1.2 keeps receive capture windows fixed to the NTP-synchronized UTC
+15-second slots. It ignores and clears the legacy `rx_offset_ms` setting used by
+0.1.1. Decoded DT remains visible as diagnostic information, but one decode can
+no longer shift later windows and cut off the leading FT8 sync block.
+
 ## Build / test
 
 ```

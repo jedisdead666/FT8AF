@@ -72,9 +72,7 @@ function drawWaterfallRow(bins: number[], boundary = false) {
     img.data[i * 4 + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
-  // 15 s cycle grid line, on the same rx-corrected clock as decode DT: a faint
-  // overlay so the waterfall's timing reads against the cycle (and the DT)
-  // rather than appearing to run ahead of it.
+  // 15 s UTC cycle grid line on the same fixed clock as the decoder.
   if (boundary) {
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.fillRect(0, 0, cols, 1);
@@ -1210,12 +1208,11 @@ function SettingsScreen(props: {
             </div>
           </div>
           <div className="field">
-            <label>DT auto-calibration (audio latency)</label>
+            <label>Receive timing</label>
             <div>
-              {clock ? `${fmtOffset(clock.rx_offset_ms)} (${clock.rx_offset_ms} ms)` : "—"}
+              {clock ? "Fixed to UTC slots (auto-calibration disabled)" : "—"}
               <span className="muted" style={{ display: "block", marginTop: 4 }}>
-                Auto-tuned from decoded DT to keep the RX window aligned with your
-                soundcard/SDR latency. Self-corrects over a few cycles.
+                Decoded DT is informational and cannot move later capture windows.
               </span>
             </div>
           </div>
