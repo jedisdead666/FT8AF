@@ -45,6 +45,7 @@ public class XieGuRig extends BaseRig {
                         return; // skip this tick; timer stays alive for reconnect
                     }
                     if (isPttOn()) {
+                        onPollingWhileTransmitting();
                         readSWRMeter();
                     } else {
                         readFreqFromRig();
@@ -55,6 +56,11 @@ public class XieGuRig extends BaseRig {
                 }
             }
         };
+    }
+
+    /** Hook for Xiegu models that require a command while each TX poll runs. */
+    protected void onPollingWhileTransmitting() {
+        // Default Xiegu radios need no additional action.
     }
 
 
@@ -266,11 +272,16 @@ public class XieGuRig extends BaseRig {
         return BaseRigOperation.getFrequencyStr(getFreq());
     }
 
-    public XieGuRig(int civAddress) {
+    protected XieGuRig(int civAddress, long pollingIntervalMs) {
         Log.d(TAG, "XieGuRig 6100: Create.");
         setCivAddress(civAddress);
 
-        readFreqTimer.schedule(readTask(), START_QUERY_FREQ_DELAY, QUERY_FREQ_TIMEOUT);
+        long initialDelayMs = Math.min(START_QUERY_FREQ_DELAY, pollingIntervalMs);
+        readFreqTimer.schedule(readTask(), initialDelayMs, pollingIntervalMs);
         //readFreqTimer.schedule(readTask(),START_QUERY_FREQ_DELAY,1000);
+    }
+
+    public XieGuRig(int civAddress) {
+        this(civAddress, QUERY_FREQ_TIMEOUT);
     }
 }

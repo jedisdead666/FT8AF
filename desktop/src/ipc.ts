@@ -127,7 +127,7 @@ export interface WaterfallConfig {
   avg: number;
 }
 
-export type RigBackend = "none" | "flrig" | "hamlib";
+export type RigBackend = "none" | "flrig" | "hamlib" | "g106";
 
 export interface RigConfig {
   backend: RigBackend;

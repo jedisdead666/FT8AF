@@ -829,6 +829,18 @@ const WF_WINDOW_LABELS: Record<WfWindow, string> = {
 const WF_FFT_SIZES = [512, 1024, 2048, 4096, 8192];
 const WF_AVG_OPTIONS = [1, 2, 3, 4, 6, 8, 12, 16];
 
+function audioDeviceLabel(device: AudioDevice): string {
+  // ALSA often exposes the DE-19's C-Media codec as the generic card name
+  // "Device". Keep the real identifier visible while making it recognizable.
+  if (device.name.includes("CARD=Device")) {
+    const recommended = device.name.startsWith("plughw:") ? " — recommended" : "";
+    return `USB Audio Device (DE-19) — ${device.name}${recommended}`;
+  }
+  if (device.name === "pipewire") return "PipeWire sound server";
+  if (device.name === "default") return "Linux system default";
+  return device.name;
+}
+
 // Add/edit/delete operator-defined dial frequencies (issue #470). Custom dials
 // persist in the config store and are merged into the band picker (shown with a
 // ★). Editing is re-adding at the same dial frequency; the backend upserts.
@@ -1087,7 +1099,9 @@ function SettingsScreen(props: {
   // after launch — or a Hamlib radio picked before its serial port was chosen —
   // showed an empty/stale list. Selecting a serial-connected Hamlib radio now
   // re-scans, so /dev/ttyACM0 (a QMX/QDX) appears without a workaround.
-  const showsPortList = rigCfg.backend === "hamlib" && !rigCfg.hamlib_network;
+  const showsPortList =
+    rigCfg.backend === "g106" ||
+    (rigCfg.backend === "hamlib" && !rigCfg.hamlib_network);
   useEffect(() => {
     if (showsPortList) refreshPorts();
   }, [showsPortList]);
@@ -1232,7 +1246,7 @@ function SettingsScreen(props: {
               <option value="">System default</option>
               {inputs.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.name} {d.is_default ? "(default)" : ""}
+                  {audioDeviceLabel(d)} {d.is_default ? "(default)" : ""}
                 </option>
               ))}
             </select>
@@ -1250,7 +1264,7 @@ function SettingsScreen(props: {
               <option value="">System default</option>
               {outputs.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.name} {d.is_default ? "(default)" : ""}
+                  {audioDeviceLabel(d)} {d.is_default ? "(default)" : ""}
                 </option>
               ))}
             </select>
@@ -1307,13 +1321,43 @@ function SettingsScreen(props: {
             </select>
             {hamlibRigs.length === 0 && (
               <span className="muted" style={{ display: "block", marginTop: 4 }}>
-                Only None and FLrig are listed — the Hamlib library didn't load, so
+                The built-in choices remain available, but Hamlib radios are not listed —
+                the Hamlib library didn't load, so
                 no radios could be enumerated. Install Hamlib and put{" "}
                 <code>hamlib-4.dll</code> / <code>libhamlib</code> next to the app or
                 on PATH, then reopen.
               </span>
             )}
           </div>
+
+          {rigCfg.backend === "g106" && (
+            <div className="row">
+              <div className="field">
+                <label>DE-19 serial port</label>
+                <div className="row">
+                  <select
+                    id="rig-serial-port-select"
+                    value={rigCfg.port}
+                    onChange={(e) => setRigCfg({ ...rigCfg, port: e.target.value })}
+                  >
+                    <option value="">(select port)</option>
+                    {ports.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name} ({p.kind})
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" title="Re-scan serial ports" onClick={refreshPorts}>
+                    ↻
+                  </button>
+                </div>
+              </div>
+              <div className="field">
+                <label>Baud</label>
+                <input value="19200" readOnly style={{ width: 80 }} />
+              </div>
+            </div>
+          )}
 
           {rigCfg.backend === "hamlib" && (
             <>
@@ -1410,6 +1454,8 @@ function SettingsScreen(props: {
               const detail =
                 rigCfg.backend === "flrig"
                   ? ` (${rigCfg.flrig_host}:${rigCfg.flrig_port})`
+                  : rigCfg.backend === "g106"
+                  ? ` (${rigCfg.port || "no port"} at 19200 baud)`
                   : rigCfg.backend === "hamlib"
                   ? ` (${rigCfg.hamlib_network ? rigCfg.hamlib_address : rigCfg.port || "no port"})`
                   : "";

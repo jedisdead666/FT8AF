@@ -446,6 +446,10 @@ struct Engine {
     last_udp_heartbeat_ms: i64,
 }
 
+fn should_refresh_ptt(ptt_on: bool, rig_requires_keepalive: bool) -> bool {
+    ptt_on && rig_requires_keepalive
+}
+
 impl Engine {
     fn new(db: Arc<Db>, evt: Sender<EngineEvent>, cmd_tx: Sender<EngineCommand>) -> Self {
         // Restore persisted station + band where present.
@@ -633,6 +637,7 @@ impl Engine {
                         silent: db <= SILENCE_DBFS,
                     }));
                 }
+                self.refresh_ptt_keepalive();
             }
 
             // Decode runs on a clock shifted later by the capture-latency
@@ -884,6 +889,22 @@ impl Engine {
         }
         self.ptt = on;
         self.publish_rig_status();
+    }
+
+    fn refresh_ptt_keepalive(&mut self) {
+        let required = self
+            .rig
+            .as_ref()
+            .map(|rig| rig.requires_ptt_keepalive())
+            .unwrap_or(false);
+        if !should_refresh_ptt(self.ptt, required) {
+            return;
+        }
+
+        let result = self.rig.as_mut().map(|rig| rig.set_ptt(true));
+        if let Some(Err(e)) = result {
+            self.emit(EngineEvent::Error(format!("PTT keepalive failed: {e}")));
+        }
     }
 
     /// Compute one windowed-FFT spectrum row from the most recent audio and emit
@@ -1315,12 +1336,20 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_rx_gain, clamp_tx_gain, reply_tx_audio_hz, rms_dbfs, wf_boundary_row, Engine,
-        CYCLE_MS, DEFAULT_RX_GAIN, DEFAULT_TX_GAIN, MAX_TX_AUDIO_HZ, MIN_TX_AUDIO_HZ,
-        SILENCE_DBFS,
+        clamp_rx_gain, clamp_tx_gain, reply_tx_audio_hz, rms_dbfs, should_refresh_ptt,
+        wf_boundary_row, Engine, CYCLE_MS, DEFAULT_RX_GAIN, DEFAULT_TX_GAIN, MAX_TX_AUDIO_HZ,
+        MIN_TX_AUDIO_HZ, SILENCE_DBFS,
     };
     use crate::db::Db;
     use std::sync::Arc;
+
+    #[test]
+    fn ptt_keepalive_only_runs_for_keyed_radios_that_require_it() {
+        assert!(should_refresh_ptt(true, true));
+        assert!(!should_refresh_ptt(false, true));
+        assert!(!should_refresh_ptt(true, false));
+        assert!(!should_refresh_ptt(false, false));
+    }
 
     #[test]
     fn reply_df_updates_session_offset_without_persisting() {
