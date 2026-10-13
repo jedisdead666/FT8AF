@@ -666,6 +666,25 @@ private fun CloudlogSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            // A passing test says nothing about the Station ID, and Wavelog rejects every
+            // QSO whose station isn't the key owner's. Once the server has answered, warn
+            // when the entered ID is blank or not in the list it returned for this key.
+            val serverAnswered = testResult == true || stationList.isNotEmpty()
+            val stationWarning =
+                when (checkStationId(stationIdInput.text, stationList)) {
+                    StationIdCheck.BLANK -> R.string.settings_station_id_missing
+                    StationIdCheck.NOT_ON_SERVER -> R.string.settings_station_id_not_on_server
+                    else -> null
+                }
+            if (serverAnswered && stationWarning != null) {
+                Text(
+                    text = stringResource(stationWarning, stationIdInput.text.trim()),
+                    color = StatusBad,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

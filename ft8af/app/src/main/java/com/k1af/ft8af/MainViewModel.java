@@ -139,6 +139,7 @@ import com.k1af.ft8af.x6100.X6100Radio;
 
 import radio.ks3ckc.ft8af.UsbPermissionIntentsKt;
 import radio.ks3ckc.ft8af.pskreporter.PskReporterSender;
+import radio.ks3ckc.ft8af.sync.CloudlogFailureHint;
 import radio.ks3ckc.ft8af.wsjtx.WsjtxCodec;
 import radio.ks3ckc.ft8af.wsjtx.WsjtxUdpService;
 
@@ -1127,7 +1128,16 @@ public class MainViewModel extends ViewModel {
                             boolean qrzOk = false;
                             boolean wrlOk = false;
                             if (GeneralVariables.enableCloudlog){
-                                cloudlogOk = ThirdPartyService.UploadToCloudLog(qslRecord);
+                                StringBuilder why = new StringBuilder();
+                                cloudlogOk = ThirdPartyService.UploadToCloudLog(qslRecord, why);
+                                if (!cloudlogOk && why.length() > 0) {
+                                    // Say why on screen, not just in debug.log: a Station ID
+                                    // from the wrong Wavelog user passes Test Connection and
+                                    // then rejects every QSO with no visible symptom.
+                                    ToastMessage.show(String.format(
+                                            getStringFromResource(R.string.cloudlog_upload_rejected),
+                                            CloudlogFailureHint.cloudlogFailureMessage(why.toString())));
+                                }
                             }
                             if (GeneralVariables.enableQRZ){
                                 qrzOk = ThirdPartyService.UploadToQRZ(qslRecord);

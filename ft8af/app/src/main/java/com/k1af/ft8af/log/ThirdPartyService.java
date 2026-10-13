@@ -312,9 +312,18 @@ public class ThirdPartyService {
         return logStr.toString();
     }
     public static boolean UploadToCloudLog(QSLRecord qslRecord){
+        return UploadToCloudLog(qslRecord, null);
+    }
+
+    /**
+     * As {@link #UploadToCloudLog(QSLRecord)}, but records why the upload failed into
+     * {@code failureOut} so the post-QSO path can toast the server's reason instead of
+     * failing silently.
+     */
+    public static boolean UploadToCloudLog(QSLRecord qslRecord, StringBuilder failureOut){
         // Convert to ADIF format
         String logStr = QSLRecordToADIF(qslRecord,ServiceType.Cloudlog);
-        return uploadAdifToCloudlog(logStr);
+        return uploadAdifToCloudlog(logStr, failureOut);
     }
 
     /**
@@ -345,6 +354,13 @@ public class ThirdPartyService {
             // HttpURLConnection won't follow on a POST.
             String clRes = cloudlogPost(base, "api/qso", result, failureOut);
             Log.d(TAG, "Cloudlog upload " + (clRes != null ? "succeeded" : "failed"));
+            if (clRes == null) {
+                // The station id is the one request field the server's reason can point
+                // at ("station id does not belong to the API key owner") and the one thing
+                // the POST log line above doesn't show. Not a secret, so log it plainly.
+                GeneralVariables.fileLog("Cloudlog: upload rejected with station_profile_id="
+                        + describeStationId(GeneralVariables.getCloudlogStationID()));
+            }
             return clRes != null;
         }catch (Exception k){
             Log.d(TAG, "Cloudlog upload error: " + k.getClass().getSimpleName());
@@ -947,6 +963,12 @@ public class ThirdPartyService {
         Log.d(TAG, "POST " + redactUrlApiKey(url) + " exceeded redirect limit");
         appendFailure(failureOut, "exceeded redirect limit");
         return null;
+    }
+
+    /** The configured station id for a log line: "(blank)" when unset, since "" vanishes. */
+    static String describeStationId(String stationId) {
+        if (stationId == null || stationId.trim().isEmpty()) return "(blank)";
+        return stationId.trim();
     }
 
     private static void appendFailure(StringBuilder failureOut, String reason) {

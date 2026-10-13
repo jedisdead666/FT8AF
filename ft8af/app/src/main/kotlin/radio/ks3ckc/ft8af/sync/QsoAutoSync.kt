@@ -6,8 +6,11 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.SystemClock
+import com.k1af.ft8af.GeneralVariables
+import com.k1af.ft8af.R
 import com.k1af.ft8af.database.DatabaseOpr
 import com.k1af.ft8af.log.ThirdPartyService
+import com.k1af.ft8af.ui.ToastMessage
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -170,6 +173,14 @@ class QsoAutoSync(private val appContext: Context) {
                 log("start ($reason): $pending pending")
                 val result = ThirdPartyService.syncAllQSOs(db, null)
                 log("done ($reason): " + summarize(result))
+                // The operator never pressed anything for this run, so the only way they
+                // learn their logbook server is rejecting QSOs is if we say so here.
+                result.cloudlogError?.takeIf { it.isNotBlank() }?.let { err ->
+                    ToastMessage.show(
+                        GeneralVariables.getStringFromResource(R.string.cloudlog_upload_rejected)
+                            .format(cloudlogFailureMessage(err)),
+                    )
+                }
             } catch (e: Exception) {
                 log("error ($reason): ${e.javaClass.simpleName} ${e.message}")
             } finally {
