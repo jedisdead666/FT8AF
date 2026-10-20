@@ -85,11 +85,12 @@ public class OperationBandTest {
     }
 
     @Test
-    public void getAllWaveLengths_returnsDistinctInFileOrder() {
+    public void getAllWaveLengths_returnsDistinctLowestFrequencyFirst() {
         OperationBand.bandList.add(new OperationBand.Band(14_074_000L, "20m"));
         OperationBand.bandList.add(new OperationBand.Band(14_080_000L, "20m")); // dup wavelength
         OperationBand.bandList.add(new OperationBand.Band(7_074_000L, "40m"));
-        assertThat(OperationBand.getAllWaveLengths()).containsExactly("20m", "40m").inOrder();
+        // Ordered by frequency, not file order (issue #929).
+        assertThat(OperationBand.getAllWaveLengths()).containsExactly("40m", "20m").inOrder();
     }
 
     @Test
