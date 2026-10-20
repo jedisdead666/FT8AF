@@ -225,9 +225,10 @@ jobs:
 
   instrumented:
     name: Instrumented tests (emulator)
-    # Exercises the androidTest suite (AppSmokeTest launches the real
-    # ComposeMainActivity) on an emulator. Same trigger as the unit-test job:
-    # every Android-affected PR plus pushes to main. This job is intentionally
+    # Exercises the androidTest suite on an emulator: AppSmokeTest plus the
+    # scripted flows under androidTest/.../flows (launch, band change, decoding a
+    # recorded FT8 WAV, a setting surviving an activity restart). Same trigger
+    # as the unit-test job: every Android-affected PR plus pushes to main. This job is intentionally
     # NOT part of android-gate and is left out of branch protection's required
     # checks while it stabilises (issue #60) — a flaky emulator must never block
     # a release.
@@ -300,24 +301,23 @@ jobs:
           working-directory: ft8af
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          # Stream test progress into the job log. By default
-          # connectedDebugAndroidTest sits silently on a single "> Task" line
-          # for minutes; backgrounding logcat's TestRunner tag (plus any
-          # error-level lines) surfaces each test's started:/finished: events —
-          # and any crash — live instead of leaving the step a black box.
-          script: |
-            adb logcat -c || true
-            # TestRunner:I → each test's started:/finished:; AndroidRuntime:E and
-            # *:F → real app crashes/uncaught exceptions. Deliberately NOT '*:E':
-            # a fresh google_apis image floods error-level logs with unrelated
-            # Play-services noise (Firebase, ConnectivityService) that buries the
-            # test signal.
-            adb logcat -s TestRunner:I AndroidRuntime:E '*:F' &
-            logcat_pid=$!
-            ./gradlew connectedDebugAndroidTest --stacktrace
-            status=$?
-            kill "$logcat_pid" 2>/dev/null || true
-            exit $status
+          # One line on purpose: the runner executes each script line in its own
+          # shell, so state like a background logcat PID can't span lines. The
+          # script streams test progress, then pulls the per-flow screenshots
+          # (and a full logcat if anything failed) into build/emulator-flows.
+          script: bash ../.github/scripts/run-emulator-flows.sh build/emulator-flows
+
+      # The scripted flows (LaunchFlowTest, BandChangeFlowTest, DecodeWavFlowTest,
+      # SettingPersistsFlowTest) each leave a screenshot of the screen they ended
+      # on, so QA can check a PR's UI without installing it (BUR-25). Uploaded on
+      # every run; logcat.txt is only there when the step failed.
+      - name: Upload emulator flow screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: emulator-flows
+          path: ft8af/build/emulator-flows/
+          if-no-files-found: warn
 
       - name: Upload instrumented test reports on failure
         if: failure()
