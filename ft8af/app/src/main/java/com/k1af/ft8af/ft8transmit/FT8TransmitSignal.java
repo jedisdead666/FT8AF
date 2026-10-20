@@ -2624,8 +2624,7 @@ public class FT8TransmitSignal {
                 isTransmitting, functionOrder, toCallsign)
                 && clearFrequencyFinder.shouldRelocate(
                         GeneralVariables.getBaseFrequency(), newestUtc)) {
-            Float pick = clearFrequencyFinder.selectClearOffset(
-                    GeneralVariables.getBaseFrequency());
+            Float pick = pickClearCqOffset();
             if (pick != null) {
                 applyClearCqOffset(pick, newestUtc, "occupied");
             }
@@ -2662,11 +2661,16 @@ public class FT8TransmitSignal {
         if (!GeneralVariables.autoClearTxFreq) {
             return;
         }
-        Float pick = clearFrequencyFinder.selectClearOffset(
-                GeneralVariables.getBaseFrequency());
+        Float pick = pickClearCqOffset();
         if (pick != null) {
             applyClearCqOffset(pick, UtcTimer.getSystemTime(), "cq-start");
         }
+    }
+
+    /** Ask the finder for a clear offset at or above the operator's floor (#938). */
+    private Float pickClearCqOffset() {
+        clearFrequencyFinder.setMinOffsetHz(GeneralVariables.autoClearTxMinFreq);
+        return clearFrequencyFinder.selectClearOffset(GeneralVariables.getBaseFrequency());
     }
 
     private void applyClearCqOffset(float offsetHz, long utcMs, String reason) {
