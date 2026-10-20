@@ -89,8 +89,11 @@ id first in the slug, e.g. `fix/bur-12-cq-button-stuck`.
   description. If the job fails, the PR isn't ready.
 - **CI must be green.** That means `android-gate` (unit tests and the release
   build) plus `Debug APK for manual testing`.
-- **Request a Copilot review** once CI is green, and address or answer each
-  comment it leaves.
+- **Get a code review before QA.** Once CI is green, request a Copilot review
+  first. If Copilot doesn't respond (it can run out of credits), run Claude's
+  `code-review` skill on the PR instead. Address or answer every finding before
+  handing off to QA, and fill in the "Code review" section of the template
+  with the reviewer you used.
 - **Label PRs that come from Discord feedback** with `from-discord`, and link
   the Discord message or the tracking task in "What changed".
 

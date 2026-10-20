@@ -25,3 +25,11 @@ Discord report this fixes. -->
 
 <!-- New or changed unit tests and what they cover. Note anything that only CI
 ran (instrumented tests, lint). -->
+
+## Code review
+
+<!-- Request a Copilot review first. If Copilot doesn't respond, run Claude's
+`code-review` skill instead. Address every finding before QA. -->
+
+- Reviewer used: <!-- Copilot / Claude code-review (Copilot didn't respond) -->
+- [ ] Every finding addressed or answered
