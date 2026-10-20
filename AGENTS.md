@@ -77,7 +77,9 @@ id first in the slug, e.g. `fix/bur-12-cq-button-stuck`.
 ### Pull requests
 
 - **Agents never merge.** Open the PR against `dev`, then stop. The maintainer
-  merges after testing the APK on a phone.
+  merges. They test on a phone only for `needs-device-test` PRs (see "Device
+  testing" below); for everything else they merge on the CI, code review, and
+  QA evidence.
 - **Fill in every section of the PR template**
   (`.github/pull_request_template.md`): the debug APK link, a 3-6 step
   manual test checklist with expected results, what changed, risks, and what was
@@ -96,6 +98,33 @@ id first in the slug, e.g. `fix/bur-12-cq-button-stuck`.
   with the reviewer you used.
 - **Label PRs that come from Discord feedback** with `from-discord`, and link
   the Discord message or the tracking task in "What changed".
+- **QA attaches evidence.** After code review, QA installs the debug APK on an
+  emulator, runs the PR's manual test checklist, and posts screenshots or a
+  short screen recording to the PR. A PR without that evidence isn't ready
+  for the maintainer.
+
+### Device testing
+
+The maintainer doesn't install every PR's APK. Device testing happens once per
+release batch, on the Play internal build that `staging` produces, which holds
+every PR merged into `dev` since the last batch. Per-PR device testing is only
+for changes an emulator can't check. Label those PRs `needs-device-test`:
+
+- transmit, PTT, or anything that keys the radio
+- CAT / rig control (CI-V, Hamlib, FlexRadio, etc.)
+- USB audio or USB serial
+- audio routing, input/output device selection, or sample-rate handling
+- runtime permissions, or what's declared in `AndroidManifest.xml`
+- signing, build types, `versionCode`, or other release config
+
+The author applies the label and says why in the template's "Device test"
+section. QA checks the label against the diff and adds it if it's missing.
+When in doubt, add it. Everything else (UI, decode/display logic, settings,
+CI, docs) merges on CI + code review + QA evidence.
+
+`from-discord` fixes are confirmed by the reporter: once the fix reaches a Play
+testing track, `discord-play-track-watch` posts to Discord and the reporter
+checks it on their own setup.
 
 ## Testing
 

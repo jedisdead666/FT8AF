@@ -3,9 +3,20 @@
 <!-- CI posts a "Debug APK" comment with the download link once the build
 finishes. Paste that link here, or write "see the Debug APK comment". -->
 
+## Device test
+
+<!-- Does this need testing on a real phone with a radio? Only if it touches
+transmit/PTT, CAT/rig control, USB audio or serial, audio routing, permissions,
+or signing/release config (see "Device testing" in AGENTS.md). If yes, add the
+`needs-device-test` label and say which part. -->
+
+- [ ] Needs device test (labeled `needs-device-test`): <!-- why -->
+- [ ] Emulator is enough
+
 ## Manual test checklist
 
-<!-- 3-6 steps someone can follow on a phone, each with the expected result. -->
+<!-- 3-6 steps QA runs on the emulator (or the maintainer on a phone for
+`needs-device-test` PRs), each with the expected result. -->
 
 1. 
 2. 
@@ -33,3 +44,9 @@ ran (instrumented tests, lint). -->
 
 - Reviewer used: <!-- Copilot / Claude code-review (Copilot didn't respond) -->
 - [ ] Every finding addressed or answered
+
+## QA evidence
+
+<!-- Filled in by QA: screenshots or a short screen recording of the checklist
+run on the emulator. -->
+
