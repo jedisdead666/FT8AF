@@ -50,6 +50,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -213,6 +214,8 @@ static void normalize_text(char* s)
     out[o] = '\0';
     strcpy(s, out);
 }
+
+#define SNR_UNKNOWN INT_MIN // truth line without a parseable SNR column
 
 typedef struct
 {
@@ -593,9 +596,11 @@ static int load_truth(const char* wav_path, bench_msg_t truth[], int max_truth)
         char* tilde = strchr(line, '~');
         if (!tilde)
             continue;
-        int snr = 0;
+        // SNR is the second column; a line without one still counts as truth
+        // but isn't scored for SNR.
+        int snr = SNR_UNKNOWN;
         if (sscanf(line, "%*s %d", &snr) != 1)
-            continue;
+            snr = SNR_UNKNOWN;
         char* msg = tilde + 1;
         while (*msg == ' ')
             ++msg;
@@ -609,10 +614,15 @@ static int load_truth(const char* wav_path, bench_msg_t truth[], int max_truth)
             continue;
         // Dedupe: jt9 can report the same message text at two frequencies, but
         // the app (and this bench) dedup decodes by text, so truth must be a
-        // set of unique texts or matched could exceed decoded.
+        // set of unique texts or matched could exceed decoded. Keep the highest
+        // SNR, as the decoded side does.
         bool dup = false;
         for (int i = 0; i < count && !dup; ++i)
+        {
             dup = (strcmp(truth[i].text, msg) == 0);
+            if (dup && snr > truth[i].snr)
+                truth[i].snr = snr;
+        }
         if (dup)
             continue;
         snprintf(truth[count].text, sizeof(truth[0].text), "%s", msg);
@@ -681,6 +691,7 @@ static int floor_for(const char* name)
 //   slope_min / slope_max   fitted slope of ours vs jt9
 //   r_min                   Pearson correlation
 //   mae_max                 mean |ours - jt9| in dB
+//   bias_min / bias_max     mean (ours - jt9) in dB: the calibration offset
 //   strong_mean_min         mean of ours over pairs where jt9 >= SNR_STRONG_DB
 // ---------------------------------------------------------------------------
 #define SNR_MAX_PAIRS 4096
@@ -692,7 +703,7 @@ static int g_snr_pairs = 0;
 
 static void snr_record(int truth, int ours)
 {
-    if (g_snr_pairs < SNR_MAX_PAIRS)
+    if (truth != SNR_UNKNOWN && g_snr_pairs < SNR_MAX_PAIRS)
     {
         g_snr_truth[g_snr_pairs] = truth;
         g_snr_ours[g_snr_pairs] = ours;
@@ -751,10 +762,11 @@ static snr_stats_t snr_compute(void)
 }
 
 // Markdown table of mean ours per 5 dB jt9 bin (the #937 before/after table).
+// Covers -30..+49, the range of an FT8 signal report; empty bins are skipped.
 static void snr_print_table(void)
 {
     printf("| jt9 SNR | n | ft8_snr mean |\n|---|---|---|\n");
-    for (int lo = -30; lo <= 25; lo += 5)
+    for (int lo = -30; lo <= 45; lo += 5)
     {
         int n = 0;
         double sum = 0;
@@ -796,6 +808,10 @@ static int snr_assert(const char* path, const snr_stats_t* s)
             ok = (got = s->r) >= v;
         else if (strcmp(key, "mae_max") == 0)
             ok = (got = s->mae) <= v;
+        else if (strcmp(key, "bias_min") == 0)
+            ok = (got = s->bias) >= v;
+        else if (strcmp(key, "bias_max") == 0)
+            ok = (got = s->bias) <= v;
         else if (strcmp(key, "strong_mean_min") == 0)
             ok = s->strong_n > 0 && (got = s->strong_mean) >= v;
         else

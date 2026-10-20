@@ -59,7 +59,7 @@ static int g_failures = 0;
 // Waterfall magnitudes are 0.5 dB steps of power, so a byte difference d is a
 // power ratio of 10^(d/20). With a flat floor N and the expected Costas tone at
 // S on every sync symbol, the FT8 path reports
-//   round(10*log10(10^((S-N)/20) - 1) - FT8_SNR_CAL_DB(31.5))
+//   round(10*log10(10^((S-N)/20) - 1) - FT8_SNR_CAL_DB(30.5))
 // clamped to [-24, +40]. The magnitude steps below are odd so the expected
 // value sits clear of a rounding boundary.
 // ---------------------------------------------------------------------------
@@ -138,15 +138,15 @@ static void test_ft8_snr_baseline(void)
 {
     printf("test_ft8_snr_baseline:\n");
 
-    // S-N = 81 -> 40.5 dB per bin -> 10*log10(10^4.05 - 1) - 31.5 = +9.
-    CHECK_EQ(snr_ft8(201, 120), 9, "S-N=81 -> +9 dB");
-    // S-N = 61 -> 30.5 dB per bin -> -1. A 20-step (10 dB) change in the sync
+    // S-N = 81 -> 40.5 dB per bin -> 10*log10(10^4.05 - 1) - 30.5 = +10.
+    CHECK_EQ(snr_ft8(201, 120), 10, "S-N=81 -> +10 dB");
+    // S-N = 61 -> 30.5 dB per bin -> 0. A 20-step (10 dB) change in the sync
     // tone moves the report by exactly 10 dB: unit slope.
-    CHECK_EQ(snr_ft8(181, 120), -1, "S-N=61 -> -1 dB");
-    // S-N = 21 -> 10.5 dB per bin -> -21.
-    CHECK_EQ(snr_ft8(141, 120), -21, "S-N=21 -> -21 dB");
+    CHECK_EQ(snr_ft8(181, 120), 0, "S-N=61 -> 0 dB");
+    // S-N = 21 -> 10.5 dB per bin -> 10*log10(10^1.05 - 1) - 30.5 = -20.
+    CHECK_EQ(snr_ft8(141, 120), -20, "S-N=21 -> -20 dB");
     // The absolute level doesn't matter, only the ratio to the floor.
-    CHECK_EQ(snr_ft8(161, 80), 9, "S-N=81 at a lower floor -> +9 dB");
+    CHECK_EQ(snr_ft8(161, 80), 10, "S-N=81 at a lower floor -> +10 dB");
 
     // Clamps: a sync tone at the floor reads -24 (WSJT-X's floor), and a very
     // strong local stops at +40.
@@ -162,6 +162,17 @@ static void test_ft8_snr_baseline(void)
     fx.wf.num_blocks = 0;
     fx.cand.time_offset = 0;
     CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), -24, "empty waterfall -> -24");
+    free(fx.wf.mag);
+
+    // Too few bins to measure the noise: a 12-bin waterfall leaves 4 bins above
+    // the tones and none below, under the 8-bin minimum per side.
+    snr_fixture_init(&fx, FTX_PROTOCOL_FT8, 120);
+    snr_put_ft8_sync(&fx, 201, 0);
+    fx.wf.num_bins = 12;
+    CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), -24, "no side wide enough -> -24");
+    // Candidate past the end of the bins: empty window, no read of its tones.
+    fx.cand.freq_offset = 12 + 48;
+    CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), -24, "window outside the waterfall -> -24");
     free(fx.wf.mag);
 }
 
@@ -183,9 +194,9 @@ static void test_ft8_snr_leakage(void)
         free(fx.wf.mag);
     }
     // Same values as without leakage: the other tones are not noise.
-    CHECK_EQ(snr[0], -11, "leaky S-N=41 -> -11 dB");
-    CHECK_EQ(snr[1], 9, "leaky S-N=81 -> +9 dB");
-    CHECK_EQ(snr[2], 19, "leaky S-N=101 -> +19 dB");
+    CHECK_EQ(snr[0], -10, "leaky S-N=41 -> -10 dB");
+    CHECK_EQ(snr[1], 10, "leaky S-N=81 -> +10 dB");
+    CHECK_EQ(snr[2], 20, "leaky S-N=101 -> +20 dB");
     CHECK_TRUE(snr[2] > 0, "strong signal reads above 0 dB");
 }
 
@@ -205,16 +216,50 @@ static void test_ft8_snr_busy_band(void)
     for (int block = 0; block < SNR_NUM_BLOCKS; ++block)
         for (int i = 0; i < 4; ++i)
             memset(snr_row(&fx, block) + neighbours[i], 200, 8);
-    CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), 9, "busy band: S-N=81 still +9 dB");
+    CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), 10, "busy band: S-N=81 still +10 dB");
     free(fx.wf.mag);
 
-    // Candidate at the bottom edge: the window clamps to bin 0 and still finds
-    // the floor.
+    // Candidate at either end of the waterfall: the window clamps, the empty
+    // side is skipped and the other side finds the floor.
     snr_fixture_init(&fx, FTX_PROTOCOL_FT8, 120);
     fx.cand.freq_offset = 0;
     snr_put_ft8_sync(&fx, 201, 0);
-    CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), 9, "band edge: S-N=81 -> +9 dB");
+    CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), 10, "bottom edge: S-N=81 -> +10 dB");
     free(fx.wf.mag);
+    snr_fixture_init(&fx, FTX_PROTOCOL_FT8, 120);
+    fx.cand.freq_offset = SNR_NUM_BINS - 8;
+    snr_put_ft8_sync(&fx, 201, 0);
+    CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), 10, "top edge: S-N=81 -> +10 dB");
+    free(fx.wf.mag);
+}
+
+// A rig's audio filter edge inside the noise window: the bins past it sit well
+// below the in-band floor. A percentile over the whole window would land on
+// them and inflate the report by up to the roll-off depth; measuring each side
+// separately and keeping the louder one ignores the rolled-off side.
+static void test_ft8_snr_filter_edge(void)
+{
+    printf("test_ft8_snr_filter_edge:\n");
+
+    for (int upper = 0; upper < 2; ++upper)
+    {
+        snr_fixture_t fx;
+        snr_fixture_init(&fx, FTX_PROTOCOL_FT8, 120);
+        // Filter edge 2 bins past the tones; 30 steps (15 dB) of roll-off.
+        int edge = upper ? SNR_CAND_BIN + 10 : SNR_CAND_BIN - 2;
+        for (int block = 0; block < SNR_NUM_BLOCKS; ++block)
+        {
+            uint8_t* row = snr_row(&fx, block);
+            if (upper)
+                memset(row + edge, 90, (size_t)(SNR_NUM_BINS - edge));
+            else
+                memset(row, 90, (size_t)edge);
+        }
+        snr_put_ft8_sync(&fx, 201, 0);
+        CHECK_EQ(ft8_snr(&fx.wf, &fx.cand), 10,
+                 upper ? "filter edge above: S-N=81 still +10 dB" : "filter edge below: S-N=81 still +10 dB");
+        free(fx.wf.mag);
+    }
 }
 
 // The FT4/FT2 branch is out of scope for #937 and must not change: per sync
@@ -305,6 +350,7 @@ int main(void)
     test_ft8_snr_baseline();
     test_ft8_snr_leakage();
     test_ft8_snr_busy_band();
+    test_ft8_snr_filter_edge();
     test_ft4_snr_unchanged();
     test_display_mapping();
 

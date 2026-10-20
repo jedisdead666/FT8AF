@@ -20,14 +20,18 @@
 // off-signal spectral baseline around it, the way WSJT-X does, and reports the result in
 // WSJT-X's 2500 Hz reference bandwidth.
 //
-// The noise is a low percentile of the time-averaged linear power over +/-FT8_SNR_NOISE_HALF_BINS
-// bins (6.25 Hz each) around the candidate's 8 tones. The percentile skips the bins other
-// signals occupy, so a busy band doesn't raise the floor. The previous estimate used the
-// other 7 Costas tones of the same symbol as noise. With our 2-symbol FFT window and
-// time_osr=4, neighbouring symbols and leakage put signal energy in those tones, so the
-// noise rose with the signal and every report was squeezed into about -14..-2 dB.
+// The noise is a low percentile of the time-averaged linear power in the
+// FT8_SNR_NOISE_HALF_BINS bins (6.25 Hz each) on each side of the candidate's 8 tones. The
+// percentile skips the bins other signals occupy, so a busy band doesn't raise the floor.
+// Each side is measured separately and the louder one wins: when a rig's filter edge falls
+// inside the window, the rolled-off side reads low and is ignored. The previous estimate
+// used the other 7 Costas tones of the same symbol as noise. With our 2-symbol FFT window
+// and time_osr=4, neighbouring symbols and leakage put signal energy in those tones, so
+// the noise rose with the signal and every report was squeezed into about -14..-2 dB.
 #define FT8_SNR_NOISE_HALF_BINS 48
-#define FT8_SNR_NOISE_PERCENTILE 0.2f
+#define FT8_SNR_NOISE_PERCENTILE 0.1f
+// A side with fewer bins than this (at the edge of the waterfall) is not used.
+#define FT8_SNR_NOISE_MIN_BINS 8
 
 // Per-bin to 2500 Hz calibration, fitted against the testdata/ft8 jt9 truth (decode_bench
 // --assert-snr). Includes the 10*log10(2500/6.25) = 26 dB bandwidth term plus the bias of
@@ -35,7 +39,7 @@
 // decode_bench (it reports mae and bias against jt9) if the waterfall
 // changes (nfft, window, osr).
 #ifndef FT8_SNR_CAL_DB
-#define FT8_SNR_CAL_DB 31.5f
+#define FT8_SNR_CAL_DB 30.5f
 #endif
 
 // Reported range. WSJT-X floors FT8 at -24; the top keeps a strong local's report sane.
@@ -44,6 +48,7 @@
 
 // Linear power of each waterfall byte: monitor_process stores 2 * dB + 240 in 0.5 dB steps,
 // so power = 10^((m - 240) / 20). Precomputed so the noise average needs no pow() per cell.
+// Keep in step with the encoding in monitor_process (common/monitor.c).
 static const float kMagToPower[256] = {
     1.0000000e-12f, 1.1220185e-12f, 1.2589254e-12f, 1.4125375e-12f, 1.5848932e-12f, 1.7782794e-12f,
     1.9952623e-12f, 2.2387211e-12f, 2.5118864e-12f, 2.8183829e-12f, 3.1622777e-12f, 3.5481339e-12f,
@@ -131,6 +136,24 @@ static const uint8_t* get_cand_mag_base(const waterfall_t* wf, const candidate_t
     return wf->mag + offset;
 }
 
+// Value at fraction pct (0..1) of x[0..n-1] in ascending order. Sorts x in place
+// (insertion sort; n is at most FT8_SNR_NOISE_HALF_BINS).
+static float ft8_snr_percentile(float* x, int n, float pct)
+{
+    for (int i = 1; i < n; ++i)
+    {
+        float v = x[i];
+        int j = i - 1;
+        while (j >= 0 && x[j] > v)
+        {
+            x[j + 1] = x[j];
+            --j;
+        }
+        x[j + 1] = v;
+    }
+    return x[(int)(pct * (n - 1))];
+}
+
 int ft8_snr(const waterfall_t* wf, const candidate_t* candidate)
 {
     int sum_signal = 0;
@@ -179,20 +202,20 @@ int ft8_snr(const waterfall_t* wf, const candidate_t* candidate)
     }
 
     // Noise: time-averaged linear power per bin in the candidate's (time_sub, freq_sub)
-    // plane, over the window around its 8 tones, then a low percentile of that profile.
+    // plane over the window around its 8 tones, then a low percentile of each side.
     // Only the window is averaged (at most 104 bins), not the whole plane: ft8_snr runs
     // once per decoded message and the waterfall is rebuilt after every subtraction
     // pass, so a whole-plane cache would do more work than it saves.
     if (wf->num_blocks <= 0)
         return FT8_SNR_MIN_DB;
-    int lo = candidate->freq_offset - FT8_SNR_NOISE_HALF_BINS;
-    int hi = candidate->freq_offset + 8 + FT8_SNR_NOISE_HALF_BINS;
+    const int fo = candidate->freq_offset;
+    int lo = fo - FT8_SNR_NOISE_HALF_BINS;
+    int hi = fo + 8 + FT8_SNR_NOISE_HALF_BINS;
     if (lo < 0)
         lo = 0;
     if (hi > wf->num_bins)
         hi = wf->num_bins;
-    const int n = hi - lo;
-    if (n <= 0)
+    if (hi <= lo)
         return FT8_SNR_MIN_DB;
 
     float profile[2 * FT8_SNR_NOISE_HALF_BINS + 8] = { 0 };
@@ -200,22 +223,26 @@ int ft8_snr(const waterfall_t* wf, const candidate_t* candidate)
     for (int block = 0; block < wf->num_blocks; ++block)
     {
         const uint8_t* row = plane + (size_t)block * wf->block_stride;
-        for (int i = 0; i < n; ++i)
+        for (int i = 0; i < hi - lo; ++i)
             profile[i] += kMagToPower[row[i]];
     }
-    // Insertion sort; n is small.
-    for (int i = 1; i < n; ++i)
+    // Lower side [lo, fo) and upper side [fo + 8, hi); the candidate's own bins are skipped.
+    const int side_start[2] = { lo, fo + 8 };
+    const int side_end[2] = { fo, hi };
+    float noise = 0;
+    for (int side = 0; side < 2; ++side)
     {
-        float v = profile[i];
-        int j = i - 1;
-        while (j >= 0 && profile[j] > v)
-        {
-            profile[j + 1] = profile[j];
-            --j;
-        }
-        profile[j + 1] = v;
+        int start = (side_start[side] > lo ? side_start[side] : lo) - lo;
+        int end = (side_end[side] < hi ? side_end[side] : hi) - lo;
+        if (end - start < FT8_SNR_NOISE_MIN_BINS)
+            continue;
+        float level = ft8_snr_percentile(profile + start, end - start, FT8_SNR_NOISE_PERCENTILE);
+        if (level > noise)
+            noise = level;
     }
-    const float noise = profile[(int)(FT8_SNR_NOISE_PERCENTILE * (n - 1))] / wf->num_blocks;
+    if (noise <= 0)
+        return FT8_SNR_MIN_DB; // no side wide enough to measure
+    noise /= wf->num_blocks;
 
     // Signal: mean linear power of the expected tone over the three Costas sync groups
     // (symbols 0-6, 36-42, 72-78). Data symbols are skipped because picking the loudest
