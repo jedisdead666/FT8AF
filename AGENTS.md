@@ -68,6 +68,32 @@ Remove the worktree when the branch is merged: `git worktree remove <path>`.
 When nothing else is in flight in your checkout, a feature branch in place is
 fine, but a worktree per task is still the recommended default.
 
+### Branch names
+
+`<type>/<short-slug>`, where `<type>` is `feat`, `fix`, `chore`, or `docs`
+(e.g. `fix/civ-address-hex`). When the work comes from a tracked task, put its
+id first in the slug, e.g. `fix/bur-12-cq-button-stuck`.
+
+### Pull requests
+
+- **Agents never merge.** Open the PR against `dev`, then stop. The maintainer
+  merges after testing the APK on a phone.
+- **Fill in every section of the PR template**
+  (`.github/pull_request_template.md`): the debug APK link, a 3-6 step
+  manual test checklist with expected results, what changed, risks, and what was
+  tested automatically.
+- **The debug APK comes from CI.** For any PR that touches `ft8af/**`,
+  `.github/workflows/pr-debug-apk.yml` builds `FT8AF-pr<N>-<sha>-debug.apk`
+  and posts (or updates) one "Debug APK" comment on the PR with the download
+  link. Before you hand off, wait for that comment and link it in the
+  description. If the job fails, the PR isn't ready.
+- **CI must be green.** That means `android-gate` (unit tests and the release
+  build) plus `Debug APK for manual testing`.
+- **Request a Copilot review** once CI is green, and address or answer each
+  comment it leaves.
+- **Label PRs that come from Discord feedback** with `from-discord`, and link
+  the Discord message or the tracking task in "What changed".
+
 ## Testing
 
 **Every new code path requires a new test.** Any branch, helper, or behavior
