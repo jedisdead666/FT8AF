@@ -87,6 +87,18 @@ fun selectBandIndex(mainViewModel: MainViewModel, context: Context, index: Int) 
             android.widget.Toast.LENGTH_SHORT,
         ).show()
     }
+    // Per-band RX input volume (issue #927): same restore rule for the
+    // receive gain. Live on the next audio buffer, like the settings slider.
+    val restoredInput = radio.ks3ckc.ft8af.restoredInputLevelForBand(newWaveLength)
+    if (restoredInput != null) {
+        GeneralVariables.inputGainPercent = restoredInput / 100f
+        mainViewModel.databaseOpr.writeConfig("inputVolume", restoredInput.toString(), null)
+        android.widget.Toast.makeText(
+            context,
+            context.getString(R.string.per_band_input_volume_restored, restoredInput, newWaveLength),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
 
     val cm = GeneralVariables.controlMode
     val connected = mainViewModel.isRigConnected()
