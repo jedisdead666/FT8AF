@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -315,6 +316,7 @@ private fun BandTile(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun AlternatesList(
     groups: List<BandGroup>,
@@ -333,7 +335,14 @@ private fun AlternatesList(
                     fontFamily = GeistMonoFamily,
                     modifier = Modifier.width(44.dp),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // FlowRow so a band with more alternates than fit on a narrow
+                // screen wraps whole chips onto the next line instead of
+                // squeezing the last chip until its label wraps per character (#930).
+                FlowRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     for (alt in g.alternates) {
                         AlternateChip(
                             label = formatMhz(alt.second),
@@ -368,6 +377,8 @@ private fun AlternateChip(
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             fontFamily = GeistMonoFamily,
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
