@@ -78,6 +78,16 @@ static void *pump_main(void *arg) {
     while (b->running) {
         ssize_t n = read(b->srv_fd, buf, sizeof(buf));
         if (n > 0) {
+            // DIAGNOSTIC (temporary): confirm exactly what the pump thread
+            // reads from hamlib's loopback socket, and that it reads it at
+            // all — suspected gap between hamlib's successful write_block()
+            // and CAT bytes (e.g. "FA;") reaching the real serial port.
+            char hex[512 * 3 + 1];
+            int hoff = 0;
+            for (ssize_t i = 0; i < n && hoff < (int) sizeof(hex) - 4; ++i) {
+                hoff += snprintf(hex + hoff, sizeof(hex) - hoff, "%02X ", buf[i]);
+            }
+            LOGI("pump: read %zd bytes from srv_fd: %s", n, hex);
             jbyteArray arr = env->NewByteArray((jsize) n);
             if (arr == nullptr) { break; }
             env->SetByteArrayRegion(arr, 0, (jsize) n, reinterpret_cast<jbyte *>(buf));

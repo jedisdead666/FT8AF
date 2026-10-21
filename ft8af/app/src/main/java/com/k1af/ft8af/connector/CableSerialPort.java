@@ -380,6 +380,14 @@ public class CableSerialPort {
             usbIoManager = new SerialInputOutputManager(usbSerialPort, new SerialInputOutputManager.Listener() {
                 @Override
                 public void onNewData(byte[] data) {
+                    // DIAGNOSTIC (temporary): CableSerialPort had no logging at
+                    // all on the receive path, so "the radio never replied" was
+                    // never actually verified -- it could equally be a relay bug
+                    // further downstream. This logs every byte actually read off
+                    // the wire, before it reaches any rig-specific listener.
+                    StringBuilder hex = new StringBuilder();
+                    for (byte x : data) hex.append(String.format("%02X ", x));
+                    fileLog("serial.recv[" + data.length + "]: hex: " + hex.toString().trim());
                     if (ioListener != null) {
                         ioListener.onNewData(data);
                     }
