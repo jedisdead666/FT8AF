@@ -34,6 +34,18 @@ adb pull "$device_dir/." "$out/screenshots/" || echo "::warning::No flow screens
 echo "Flow screenshots:"
 ls -l "$out/screenshots" || true
 
+# The flows skip themselves off-emulator (Flows.isEmulator). If that check ever
+# misfires here, every flow would "pass" as skipped; a missing screenshot
+# catches it. Keep in sync with the Flows.screenshot("0N_...") calls.
+if [[ $status -eq 0 ]]; then
+  for flow in 01_launch 02_band_change 03_decode_wav 04_setting_persists; do
+    if ! compgen -G "$out/screenshots/${flow}*.png" > /dev/null; then
+      echo "::error::No screenshot for flow ${flow}; it was skipped or never reached the end"
+      status=1
+    fi
+  done
+fi
+
 if [[ $status -ne 0 ]]; then
   adb logcat -d -v threadtime > "$out/logcat.txt" || true
   echo "::error::Instrumented tests failed; logcat.txt and screenshots are in the emulator-flows artifact"

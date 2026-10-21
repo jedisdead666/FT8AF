@@ -120,11 +120,15 @@ them as the `emulator-flows` artifact (plus `logcat.txt` when it fails), so a
 PR's UI can be checked without a phone. When you change a screen one of these
 flows walks through, update the flow in the same PR.
 
-Run them against an attached emulator or phone from the `ft8af` dir with
+Run them locally against an **emulator only** from the `ft8af` dir with
 `./gradlew connectedDebugAndroidTest` (Windows:
-`cmd.exe /c "gradlew.bat connectedDebugAndroidTest"`). The screenshots land on
-the device in `/data/local/tmp/ft8af-flows/`. The flows put back the band and
-callsign they change, but they do clear the decode list.
+`cmd.exe /c "gradlew.bat connectedDebugAndroidTest"`). Don't run it with your
+own phone attached: the task uninstalls the app at the end (wiping its logbook
+and settings), and the flows drive live state (band, operator identity, and a
+recorded slot through the real decode pipeline, which can spot to PSKReporter
+or start the auto-sequencer). On a physical device the flows skip themselves,
+but the uninstall still happens. The screenshots land on the device in
+`/data/local/tmp/ft8af-flows/`.
 
 ### iOS (`ios/`, macOS only)
 

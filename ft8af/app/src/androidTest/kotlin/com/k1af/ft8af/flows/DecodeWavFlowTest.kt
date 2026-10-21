@@ -85,6 +85,7 @@ class DecodeWavFlowTest {
         while (pos + 8 <= bytes.size) {
             val id = String(bytes, pos, 4, Charsets.US_ASCII)
             val size = buf.getInt(pos + 4)
+            require(size >= 0 && pos + 8 + size <= bytes.size) { "$asset: bad size $size for chunk '$id'" }
             if (id == "data") {
                 val count = size / 2
                 return FloatArray(count) { i -> buf.getShort(pos + 8 + i * 2) / 32768f }

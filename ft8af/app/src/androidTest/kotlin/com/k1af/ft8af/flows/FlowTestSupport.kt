@@ -1,6 +1,7 @@
 package com.k1af.ft8af.flows
 
 import android.Manifest
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.compose.ui.test.hasClickAction
@@ -14,10 +15,12 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import com.k1af.ft8af.MainViewModel
+import org.junit.Assume
 import org.junit.rules.RuleChain
 import org.junit.rules.TestRule
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
+import org.junit.runners.model.Statement
 import radio.ks3ckc.ft8af.ComposeMainActivity
 
 /**
@@ -51,12 +54,25 @@ internal object Flows {
     fun composeRule() = createAndroidComposeRule<ComposeMainActivity>()
 
     /**
-     * Permissions outermost so they're granted before launch; the failure
-     * screenshot innermost so it fires while the activity is still on screen.
+     * The flows drive the live app: the decode flow pushes a recording through
+     * the real pipeline (PSKReporter, auto-sequencer, clock sync), and the others
+     * retune the band and re-save the operator identity. On someone's own phone
+     * that would mean false spots, a possible transmission, and changed settings,
+     * so outside an emulator every flow is skipped. CI can't pass by skipping:
+     * run-emulator-flows.sh fails when a flow's screenshot is missing.
+     */
+    fun isEmulator(): Boolean =
+        Build.HARDWARE in setOf("ranchu", "goldfish") || Build.PRODUCT.startsWith("sdk_gphone")
+
+    /**
+     * Emulator check outermost so nothing launches on a phone; permissions next
+     * so they're granted before launch; the failure screenshot innermost so it
+     * fires while the activity is still on screen.
      */
     fun chain(
         compose: AndroidComposeTestRule<ActivityScenarioRule<ComposeMainActivity>, ComposeMainActivity>,
-    ): TestRule = RuleChain.outerRule(permissionRule())
+    ): TestRule = RuleChain.outerRule(EmulatorOnly())
+        .around(permissionRule())
         .around(compose)
         .around(ScreenshotOnFailure())
 
@@ -96,6 +112,19 @@ internal object Flows {
             result = runCatching(block)
         }
         return result!!.getOrThrow()
+    }
+}
+
+/** Skips the flow (JUnit assumption) unless [Flows.isEmulator]. */
+internal class EmulatorOnly : TestRule {
+    override fun apply(base: Statement, description: Description): Statement = object : Statement() {
+        override fun evaluate() {
+            Assume.assumeTrue(
+                "Scripted flows only run on an emulator; they change live app state (BUR-25)",
+                Flows.isEmulator(),
+            )
+            base.evaluate()
+        }
     }
 }
 
