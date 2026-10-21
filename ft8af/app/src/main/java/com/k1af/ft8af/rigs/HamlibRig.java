@@ -30,6 +30,19 @@ public class HamlibRig extends BaseRig {
     /** hamlib mode for FT8/FT4: DATA-USB, so audio routes through the data path. */
     private static final String FT_MODE = "PKTUSB";
 
+    /**
+     * hamlib's RIG_MODEL_QRPLABS_QMX (RIG_MAKE_MODEL(RIG_KENWOOD, 57) = 2057).
+     * hamlib's generic {@code kenwood_set_mode} has no knowledge of the QMX's
+     * own vendor-specific {@code Q41;} command, which the radio needs after
+     * {@code MD6;} (and again after any {@code FA...;} frequency change, which
+     * otherwise silently reverts the radio from Digital back to USB) to
+     * actually commit to and stay in Digital/Data mode — the same gap Dan
+     * Lee's native app had to hand-patch for the same radio. hamlib's own
+     * mode-setting is otherwise correct for every other Hamlib-backed rig in
+     * this list, so this follow-up is scoped to this one model only.
+     */
+    private static final int QRPLABS_QMX_MODEL_ID = 2057;
+
     private final int modelId;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile long handle = 0;
@@ -59,6 +72,22 @@ public class HamlibRig extends BaseRig {
 
     public HamlibRig(int modelId) {
         this.modelId = modelId;
+    }
+
+    /**
+     * Send a raw CAT command straight to the connector, bypassing hamlib
+     * entirely. Only for vendor-specific strings hamlib has no concept of
+     * (like QMX's {@code Q41;}) — anything hamlib understands should go
+     * through the normal {@code nativeSet*} calls so hamlib's own internal
+     * rig-state tracking stays correct.
+     */
+    private void sendRawCat(String cmd) {
+        BaseRigConnector c = getConnector();
+        if (c != null) {
+            c.sendData(cmd.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        } else {
+            Log.w(TAG, "sendRawCat(" + cmd + "): dropping, getConnector() is null");
+        }
     }
 
     /**
@@ -147,6 +176,9 @@ public class HamlibRig extends BaseRig {
             if (!ensureOpen()) return;
             int rc = HamlibNative.nativeSetMode(handle, FT_MODE);
             if (rc != 0) Log.w(TAG, "set_mode(" + FT_MODE + ") rc=" + rc);
+            if (modelId == QRPLABS_QMX_MODEL_ID) {
+                sendRawCat("Q41;");
+            }
         });
     }
 
@@ -160,6 +192,12 @@ public class HamlibRig extends BaseRig {
             if (!ensureOpen()) return;
             int rc = HamlibNative.nativeSetFreq(handle, hz);
             if (rc != 0) Log.w(TAG, "set_freq(" + hz + ") rc=" + rc);
+            if (modelId == QRPLABS_QMX_MODEL_ID) {
+                // FA...; alone silently reverts the QMX from Digital back to
+                // USB (observed on real hardware) — re-assert Q41; every time
+                // frequency changes, not just once at mode-set time.
+                sendRawCat("Q41;");
+            }
         });
     }
 
