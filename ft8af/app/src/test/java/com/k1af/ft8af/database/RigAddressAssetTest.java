@@ -2,6 +2,8 @@ package com.k1af.ft8af.database;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.k1af.ft8af.rigs.InstructionSet;
+
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -116,6 +118,7 @@ public class RigAddressAssetTest {
         "Yaesu FT-891 (Hamlib)",
         "ICOM IC-7300MK2",
         "YAESU FTX-1(USB)",
+        "QRP Labs QMX",
     };
 
     private RigNameList load() {
@@ -184,6 +187,20 @@ public class RigAddressAssetTest {
         assertThat(ftx1.address).isEqualTo(ft891.address);
         assertThat(ftx1.bauRate).isEqualTo(ft891.bauRate);
         assertThat(ftx1.instructionSet).isEqualTo(ft891.instructionSet);
+    }
+
+    @Test
+    public void qmx_isListedWithQdxDefaults() {
+        // The QMX speaks the same TS-480-style CAT subset as the QDX
+        // (KENWOOD_TS590 instruction set); baud is moot over USB CDC.
+        RigNameList list = load();
+        RigNameList.RigName qmx = findByName(list, "QRP Labs QMX");
+        RigNameList.RigName qdx = findByName(list, "Qrp Labs QDX");
+        assertThat(qmx).isNotNull();
+        assertThat(qmx.instructionSet).isEqualTo(InstructionSet.KENWOOD_TS590);
+        assertThat(qmx.bauRate).isEqualTo(9600);
+        assertThat(qmx.instructionSet).isEqualTo(qdx.instructionSet);
+        assertThat(qmx.bauRate).isEqualTo(qdx.bauRate);
     }
 
     @Test
