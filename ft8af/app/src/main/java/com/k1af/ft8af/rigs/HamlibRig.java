@@ -94,6 +94,16 @@ public class HamlibRig extends BaseRig {
         if (c == null || !c.isConnected() || !HamlibNative.isAvailable()) {
             return false;
         }
+        if (modelId <= 0) {
+            // Never hand hamlib a placeholder/unset model ID: rig_init(0) was
+            // observed on real hardware to abort the whole process (native
+            // SIGABRT, "pthread_mutex_lock called on a destroyed mutex") a
+            // fraction of a second later, not just fail gracefully. 0 means
+            // "not yet persisted" (see GeneralVariables.hamlibModelId) and must
+            // never reach native code.
+            Log.w(TAG, "ensureOpen: refusing to open invalid hamlib model " + modelId);
+            return false;
+        }
         long h = HamlibNative.nativeOpen(modelId, sink);
         if (h == 0) {
             Log.w(TAG, "nativeOpen failed for hamlib model " + modelId);
