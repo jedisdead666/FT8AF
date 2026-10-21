@@ -27,21 +27,20 @@ import java.util.concurrent.RejectedExecutionException;
 public class HamlibRig extends BaseRig {
     private static final String TAG = "HamlibRig";
 
-    /** hamlib mode for FT8/FT4: DATA-USB, so audio routes through the data path. */
-    private static final String FT_MODE = "PKTUSB";
-
     /**
-     * hamlib's RIG_MODEL_QRPLABS_QMX (RIG_MAKE_MODEL(RIG_KENWOOD, 57) = 2057).
-     * hamlib's generic {@code kenwood_set_mode} has no knowledge of the QMX's
-     * own vendor-specific {@code Q41;} command, which the radio needs after
-     * {@code MD6;} (and again after any {@code FA...;} frequency change, which
-     * otherwise silently reverts the radio from Digital back to USB) to
-     * actually commit to and stay in Digital/Data mode — the same gap Dan
-     * Lee's native app had to hand-patch for the same radio. hamlib's own
-     * mode-setting is otherwise correct for every other Hamlib-backed rig in
-     * this list, so this follow-up is scoped to this one model only.
+     * hamlib mode string for FT8/FT4. NOT "PKTUSB": hamlib's generic Kenwood
+     * mode table (rigs/kenwood/kenwood.c's kenwood_mode_table, which the QMX
+     * backend falls back to since it sets no override) maps RIG_MODE_PKTUSB
+     * to table index 13, which kenwood_set_mode() then encodes as the ASCII
+     * character 'D' ('A' + 13 - 10) -- producing "MDD;". The QMX's own CAT
+     * manual (qrp-labs.com/images/qmx/manuals/cat_1_04_003.pdf) only accepts
+     * single-digit MD values (1,2,3,5,6,7,8,9); 'D' is not one of them and is
+     * silently rejected, so the radio's mode was never actually being set at
+     * all via this path. Table index 6 holds RIG_MODE_RTTY ("FSK Mode" per
+     * that table's own comment) -- exactly the QMX manual's own "6 (FSK)",
+     * its real digital mode. "RTTY" therefore produces the valid "MD6;".
      */
-    private static final int QRPLABS_QMX_MODEL_ID = 2057;
+    private static final String FT_MODE = "RTTY";
 
     private final int modelId;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -72,22 +71,6 @@ public class HamlibRig extends BaseRig {
 
     public HamlibRig(int modelId) {
         this.modelId = modelId;
-    }
-
-    /**
-     * Send a raw CAT command straight to the connector, bypassing hamlib
-     * entirely. Only for vendor-specific strings hamlib has no concept of
-     * (like QMX's {@code Q41;}) — anything hamlib understands should go
-     * through the normal {@code nativeSet*} calls so hamlib's own internal
-     * rig-state tracking stays correct.
-     */
-    private void sendRawCat(String cmd) {
-        BaseRigConnector c = getConnector();
-        if (c != null) {
-            c.sendData(cmd.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-        } else {
-            Log.w(TAG, "sendRawCat(" + cmd + "): dropping, getConnector() is null");
-        }
     }
 
     /**
@@ -176,9 +159,6 @@ public class HamlibRig extends BaseRig {
             if (!ensureOpen()) return;
             int rc = HamlibNative.nativeSetMode(handle, FT_MODE);
             if (rc != 0) Log.w(TAG, "set_mode(" + FT_MODE + ") rc=" + rc);
-            if (modelId == QRPLABS_QMX_MODEL_ID) {
-                sendRawCat("Q41;");
-            }
         });
     }
 
@@ -192,12 +172,6 @@ public class HamlibRig extends BaseRig {
             if (!ensureOpen()) return;
             int rc = HamlibNative.nativeSetFreq(handle, hz);
             if (rc != 0) Log.w(TAG, "set_freq(" + hz + ") rc=" + rc);
-            if (modelId == QRPLABS_QMX_MODEL_ID) {
-                // FA...; alone silently reverts the QMX from Digital back to
-                // USB (observed on real hardware) — re-assert Q41; every time
-                // frequency changes, not just once at mode-set time.
-                sendRawCat("Q41;");
-            }
         });
     }
 
@@ -208,14 +182,6 @@ public class HamlibRig extends BaseRig {
             long f = HamlibNative.nativeGetFreq(handle);
             if (f > 0) {
                 setFreq(f); // updates dial + fires CAT-liveness (BaseRig)
-            }
-            if (modelId == QRPLABS_QMX_MODEL_ID) {
-                // rig_get_freq() sends the same FA; command as a query (no
-                // parameter) — observed on real hardware to revert the QMX
-                // from Digital to USB the same as a frequency set does, and
-                // this is very likely called on a periodic poll, so it needs
-                // the same Q41; follow-up or mode keeps reverting repeatedly.
-                sendRawCat("Q41;");
             }
         });
     }
