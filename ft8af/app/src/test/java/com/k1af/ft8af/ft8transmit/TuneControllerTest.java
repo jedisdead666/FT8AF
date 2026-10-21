@@ -141,4 +141,53 @@ public class TuneControllerTest {
         c.tryStart(600); // clamps to 60 s
         assertThat(c.remainingMs()).isEqualTo(TuneController.MAX_MAX_ON_SECONDS * 1000L);
     }
+
+    @Test
+    public void swrHalt_notSuppressedBeforeAnyTune() {
+        TuneController c = new TuneController(new FakeClock());
+        assertThat(c.suppressesSwrHalt()).isFalse();
+    }
+
+    @Test
+    public void swrHalt_suppressedAfterStopUntilPttDrops() {
+        // #943: the operator's stop clears active immediately, but the carrier is
+        // still up while the tone ramps out and PTT is released.
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.tryStart(10);
+        c.markKeyed();
+        assertThat(c.suppressesSwrHalt()).isTrue();
+
+        c.requestStop(TuneController.STOP_USER);
+        assertThat(c.isActive()).isFalse();
+        clock.now += 5_000; // a slow key-up must not open a gap
+        assertThat(c.suppressesSwrHalt()).isTrue();
+    }
+
+    @Test
+    public void swrHalt_suppressedForTheSettleWindowAfterKeyUp() {
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.tryStart(10);
+        c.markKeyed();
+        c.requestStop(TuneController.STOP_USER);
+        c.markUnkeyed();
+
+        clock.now += TuneController.SWR_SETTLE_MS - 1;
+        assertThat(c.suppressesSwrHalt()).isTrue();
+
+        clock.now += 1; // window over: an FT8 over's high SWR halts again
+        assertThat(c.suppressesSwrHalt()).isFalse();
+    }
+
+    @Test
+    public void swrHalt_timeoutStopAlsoCovered() {
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.tryStart(10);
+        c.markKeyed();
+        clock.now += 10_000;
+        assertThat(c.shouldContinue()).isFalse(); // timeout fired
+        assertThat(c.suppressesSwrHalt()).isTrue();
+    }
 }

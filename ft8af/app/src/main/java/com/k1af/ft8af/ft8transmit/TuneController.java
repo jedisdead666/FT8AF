@@ -45,6 +45,19 @@ public final class TuneController {
     private long deadlineMs;
     private String stopReason = null;
 
+    /**
+     * How long after PTT drops a tune still exempts SWR readings from the halt.
+     * CAT meter replies lag the carrier, so a high reading taken at the end of
+     * the tune can land after key-up (issue #943).
+     */
+    public static final long SWR_SETTLE_MS = 1500;
+
+    // PTT state, tracked apart from {@link #active}: active drops the instant
+    // the operator taps stop (or the timeout fires), but the carrier keeps
+    // going while the tone ramps out, the track stops, and PTT is released.
+    private boolean keyed = false;
+    private long unkeyedAtMs = Long.MIN_VALUE;
+
     public TuneController(Clock clock) {
         this.clock = clock;
     }
@@ -107,6 +120,32 @@ public final class TuneController {
 
     public synchronized boolean isActive() {
         return active;
+    }
+
+    /** The audio worker is about to key PTT for the tune carrier. */
+    public synchronized void markKeyed() {
+        keyed = true;
+    }
+
+    /** The audio worker has released PTT for the tune carrier. */
+    public synchronized void markUnkeyed() {
+        if (keyed) {
+            keyed = false;
+            unkeyedAtMs = clock.nowMs();
+        }
+    }
+
+    /**
+     * True while an SWR reading should be treated as coming from the tune carrier,
+     * not a fault: the session is active, PTT is still keyed for the tune, or PTT
+     * dropped less than {@link #SWR_SETTLE_MS} ago. High SWR is expected while
+     * tuning, and halting would set the lockout and block the next tune.
+     */
+    public synchronized boolean suppressesSwrHalt() {
+        if (active || keyed) {
+            return true;
+        }
+        return unkeyedAtMs != Long.MIN_VALUE && clock.nowMs() - unkeyedAtMs < SWR_SETTLE_MS;
     }
 
     /** Why the last session ended, or null if none ended yet. */

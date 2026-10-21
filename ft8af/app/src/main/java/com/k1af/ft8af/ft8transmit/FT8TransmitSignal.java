@@ -3175,6 +3175,15 @@ public class FT8TransmitSignal {
         return tuneController.isActive();
     }
 
+    /**
+     * Whether SWR readings should be attributed to the tune carrier. Wider than
+     * {@link #isTuning()}: also covers the ramp-out/key-up tail and a short settle
+     * window after PTT drops (issue #943). See {@link TuneController#suppressesSwrHalt()}.
+     */
+    public boolean isTuneSwrExempt() {
+        return tuneController.suppressesSwrHalt();
+    }
+
     /** Milliseconds until the tune safety timeout fires; 0 when not tuning. */
     public long tuneRemainingMs() {
         return tuneController.remainingMs();
@@ -3252,6 +3261,7 @@ public class FT8TransmitSignal {
                     offsetHz, radio.ks3ckc.ft8af.TuneLevelKt.currentTuneLevel(),
                     TuneController.clampMaxOnSeconds(GeneralVariables.tuneMaxOnSeconds),
                     GeneralVariables.audioSampleRate));
+            tuneController.markKeyed();
             onDoTransmitted.onTuneKeyDown();
             keyed = true;
             mutableIsTuning.postValue(true);
@@ -3360,6 +3370,9 @@ public class FT8TransmitSignal {
                     Log.e(TAG, "Tune key-up failed: " + e);
                 }
             }
+            // Starts the SWR settle window; unconditional because markKeyed()
+            // runs before onTuneKeyDown(), which may have thrown.
+            tuneController.markUnkeyed();
             mutableIsTuning.postValue(false);
             String reason = tuneController.lastStopReason();
             GeneralVariables.fileLog(String.format(
