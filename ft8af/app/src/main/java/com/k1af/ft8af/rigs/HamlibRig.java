@@ -47,6 +47,13 @@ public class HamlibRig extends BaseRig {
         BaseRigConnector c = getConnector();
         if (c != null) {
             c.sendData(data);
+        } else {
+            // DIAGNOSTIC (temporary): hamlib's CAT bytes are silently dropped
+            // here with no trace anywhere else in the app or native logs when
+            // the connector is null — suspected cause of commands beyond the
+            // initial rig_open() handshake (e.g. FA;) never reaching the radio.
+            Log.w(TAG, "sink.onBytesToRig: dropping " + data.length
+                    + " byte(s), getConnector() is null");
         }
     };
 
