@@ -104,12 +104,28 @@ public class HamlibRig extends BaseRig {
             Log.w(TAG, "ensureOpen: refusing to open invalid hamlib model " + modelId);
             return false;
         }
-        long h = HamlibNative.nativeOpen(modelId, sink);
+        long h = HamlibNative.nativeCreate(modelId, sink);
         if (h == 0) {
-            Log.w(TAG, "nativeOpen failed for hamlib model " + modelId);
+            Log.w(TAG, "nativeCreate failed for hamlib model " + modelId);
             return false;
         }
+        // Publish the handle BEFORE running the handshake: onReceiveData()
+        // only forwards radio bytes into the bridge once handle != 0, and
+        // rig_open() (called by nativeRigOpen below) does its own synchronous
+        // CAT handshake that needs those bytes fed back in real time. With a
+        // single combined open call, every byte the radio sent during that
+        // handshake was silently dropped (handle was still 0), so hamlib
+        // always saw a timeout — confirmed on real hardware: the radio was
+        // genuinely replying (serial.recv had real traffic) while hamlib's
+        // own trace reported "0 chars" for that exact window, every time.
         handle = h;
+        int rc = HamlibNative.nativeRigOpen(h);
+        if (rc != 0) {
+            Log.w(TAG, "nativeRigOpen failed for hamlib model " + modelId + " rc=" + rc);
+            // nativeRigOpen already tore down and freed the bridge on failure.
+            handle = 0;
+            return false;
+        }
         Log.i(TAG, "hamlib model " + modelId + " opened");
         return true;
     }

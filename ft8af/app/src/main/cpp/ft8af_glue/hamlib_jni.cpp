@@ -64,6 +64,7 @@ struct HamlibBridge {
     std::atomic<bool> running{false};
     jobject sink = nullptr;   // global ref to HamlibNative.HamlibSink
     jmethodID onBytesToRig = nullptr;
+    int model_id = 0;   // for logging only; set in nativeCreate, read in nativeRigOpen
 };
 
 // ---- pump thread: hamlib's outbound CAT bytes -> Java sink ------------------
@@ -128,12 +129,23 @@ static HamlibBridge *handle_to_bridge(jlong h) {
 extern "C" {
 
 /*
- * nativeOpen: build the bridge, init+open the rig on the loopback socket.
- * Returns an opaque handle (>0) or 0 on failure.
+ * nativeCreate: build the bridge and start the pump thread, but do NOT call
+ * rig_open() yet. Returns an opaque handle (>0) or 0 on failure.
+ *
+ * Split from the open call (see nativeRigOpen below) so Java can publish the
+ * handle to HamlibRig.handle BEFORE rig_open()'s own synchronous handshake
+ * runs. HamlibRig.onReceiveData() only forwards radio bytes into the bridge
+ * when handle != 0 — with the original single nativeOpen(), handle was only
+ * set after it returned, so every byte the radio sent during rig_open()'s own
+ * handshake (its ID;/FA; probes) was silently dropped on the Java side, and
+ * hamlib always saw 0 chars and timed out, even against a radio that was
+ * actually replying. Confirmed on real hardware: serial.recv showed real
+ * traffic arriving while hamlib's own trace reported "Timed out ... after 0
+ * chars" for the exact same window, every single time.
  */
 JNIEXPORT jlong JNICALL
-Java_com_k1af_ft8af_wave_HamlibNative_nativeOpen(JNIEnv *env, jclass,
-                                                 jint modelId, jobject sink) {
+Java_com_k1af_ft8af_wave_HamlibNative_nativeCreate(JNIEnv *env, jclass,
+                                                    jint modelId, jobject sink) {
     ensure_vm(env);
     auto *b = new HamlibBridge();
 
@@ -183,8 +195,29 @@ Java_com_k1af_ft8af_wave_HamlibNative_nativeOpen(JNIEnv *env, jclass,
         close(b->listen_fd); delete b; return 0;
     }
 
-    // 5. open (connects to our listener; initial CAT handshake flows over the
-    //    bridge to the real radio via Java)
+    b->model_id = modelId;
+    LOGI("hamlib bridge for model %d created on 127.0.0.1:%d (not yet opened)",
+         modelId, port);
+    return reinterpret_cast<jlong>(b);
+}
+
+/*
+ * nativeRigOpen: run rig_open() on an already-created bridge (see
+ * nativeCreate above for why this is split out). Java must publish the
+ * handle to HamlibRig.handle before calling this, so nativeFeedFromRig can
+ * deliver bytes the radio sends during rig_open()'s own handshake.
+ *
+ * Returns RIG_OK (0) on success, or a (negative) hamlib error code. On
+ * failure the bridge is fully torn down and freed here, same as the
+ * original single-call nativeOpen's failure path — the handle must not be
+ * used again by the caller after a non-zero return.
+ */
+JNIEXPORT jint JNICALL
+Java_com_k1af_ft8af_wave_HamlibNative_nativeRigOpen(JNIEnv *env, jclass,
+                                                     jlong handle) {
+    auto *b = handle_to_bridge(handle);
+    if (b == nullptr) return -1;
+
     int rc = rig_open(b->rig);
     if (rc != RIG_OK) {
         LOGE("rig_open failed: %d (%s)", rc, rigerror(rc));
@@ -203,10 +236,10 @@ Java_com_k1af_ft8af_wave_HamlibNative_nativeOpen(JNIEnv *env, jclass,
         sfd = b->srv_fd.load();
         if (sfd >= 0) close(sfd);
         delete b;
-        return 0;
+        return rc;
     }
-    LOGI("hamlib rig %d opened via 127.0.0.1:%d", modelId, port);
-    return reinterpret_cast<jlong>(b);
+    LOGI("hamlib rig %d opened", b->model_id);
+    return RIG_OK;
 }
 
 /* Feed bytes received from the real radio into hamlib's read side. */
@@ -283,7 +316,7 @@ Java_com_k1af_ft8af_wave_HamlibNative_nativeClose(JNIEnv *env, jclass, jlong han
     b->running = false;
     // Unblock the pump whether it is parked in accept() (never connected) or
     // read(): close the listener first, then shut down the accepted socket.
-    // Joining before this could deadlock. See nativeOpen's failure path.
+    // Joining before this could deadlock. See nativeRigOpen's failure path.
     int lfd = b->listen_fd.exchange(-1);
     if (lfd >= 0) { shutdown(lfd, SHUT_RDWR); close(lfd); }
     int sfd = b->srv_fd.load();
