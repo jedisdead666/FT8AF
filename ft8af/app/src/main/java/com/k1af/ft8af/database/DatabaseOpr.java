@@ -2772,6 +2772,11 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                             .decode(result, com.k1af.ft8af.rigs.CivAddressConfig.DEFAULT_ADDRESS);
                     GeneralVariables.civAddressStored = result;
                 }
+                if (name.equalsIgnoreCase("hamlibModel")) {
+                    // Plain decimal, not hex, and not byte-masked -- see civAddress's
+                    // javadoc in GeneralVariables for why this needs its own key.
+                    GeneralVariables.hamlibModelId = parseConfigInt(result, 0);
+                }
                 if (name.equalsIgnoreCase(com.k1af.ft8af.rigs.CivAddressConfig.FORMAT_KEY)) {
                     // Provenance marker: present only when a hex-aware writer stored "civ".
                     GeneralVariables.civAddressFormatKnown =
