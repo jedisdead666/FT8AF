@@ -209,6 +209,14 @@ public class HamlibRig extends BaseRig {
             if (f > 0) {
                 setFreq(f); // updates dial + fires CAT-liveness (BaseRig)
             }
+            if (modelId == QRPLABS_QMX_MODEL_ID) {
+                // rig_get_freq() sends the same FA; command as a query (no
+                // parameter) — observed on real hardware to revert the QMX
+                // from Digital to USB the same as a frequency set does, and
+                // this is very likely called on a periodic poll, so it needs
+                // the same Q41; follow-up or mode keeps reverting repeatedly.
+                sendRawCat("Q41;");
+            }
         });
     }
 
