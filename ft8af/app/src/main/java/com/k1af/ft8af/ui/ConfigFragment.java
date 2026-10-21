@@ -961,6 +961,12 @@ public class ConfigFragment extends Fragment {
      * @param rigName Rig model
      */
     private void setAddrAndBauRate(RigNameList.RigName rigName) {
+        // DIAGNOSTIC (temporary): confirm exactly which rig/address actually
+        // gets applied when a rig is selected -- suspected mismatch between
+        // what the UI shows selected and what civAddress ends up holding by
+        // the time connectRig() constructs the rig.
+        GeneralVariables.fileLog("setAddrAndBauRate: rigName=" + rigName.modelName
+                + " address=" + rigName.address + " (0x" + Integer.toHexString(rigName.address) + ")");
         GeneralVariables.civAddress = rigName.address;
         mainViewModel.setCivAddress();
         GeneralVariables.baudRate = rigName.bauRate;

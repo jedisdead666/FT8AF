@@ -2439,6 +2439,10 @@ public class MainViewModel extends ViewModel {
             case InstructionSet.HAMLIB:
                 // hamlib model number is carried in the rig table's address column
                 // (parsed base-16), e.g. FT-891 = 1036 = 0x40C.
+                // DIAGNOSTIC (temporary): confirm the exact value actually used to
+                // construct HamlibRig at the moment of connection.
+                GeneralVariables.fileLog("connectRig: constructing HamlibRig(civAddress="
+                        + GeneralVariables.civAddress + ")");
                 baseRig = new HamlibRig(GeneralVariables.civAddress);
                 break;
         }
