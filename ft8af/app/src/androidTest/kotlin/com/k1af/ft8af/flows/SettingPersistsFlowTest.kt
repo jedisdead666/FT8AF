@@ -84,7 +84,10 @@ class SettingPersistsFlowTest {
     private fun restoreCallsign(callsign: String) {
         if (GeneralVariables.myCallsign == callsign) return
         GeneralVariables.myCallsign = callsign
-        MainViewModel.peekInstance()?.databaseOpr?.writeConfig("callsign", callsign, null)
+        // Best effort, so a throw here can't replace the real failure.
+        runCatching {
+            MainViewModel.peekInstance()?.databaseOpr?.writeConfig("callsign", callsign, null)
+        }
     }
 
     private companion object {

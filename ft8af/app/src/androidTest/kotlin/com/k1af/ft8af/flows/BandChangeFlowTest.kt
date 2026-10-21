@@ -19,6 +19,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestRule
 import org.junit.runner.RunWith
+import radio.ks3ckc.ft8af.ui.components.formatMhz
+import radio.ks3ckc.ft8af.ui.components.mostUsedBands
 import radio.ks3ckc.ft8af.ui.components.selectBandIndex
 
 /**
@@ -39,11 +41,14 @@ class BandChangeFlowTest {
         val originalBand = GeneralVariables.band
 
         // Hop to 40m, or to 20m if a previous run left the app on 40m, so the
-        // label always has to change.
+        // label always has to change. The dial comes from the same rows the
+        // sheet shows for the current mode (FT8 7.074, FT4 7.0475, ...).
         val onFortyMeters = BaseRigOperation.getMeterFromFreq(originalBand) == "40m"
         val targetBand = if (onFortyMeters) "20m" else "40m"
-        val targetHz = if (onFortyMeters) 14_074_000L else 7_074_000L
-        val expectedLabel = "${"%.3f".format(java.util.Locale.US, targetHz / 1e6)} MHz · $targetBand"
+        val targetHz = mostUsedBands(OperationBand.bandList, GeneralVariables.operatingMode)
+            .first { it.waveLength == targetBand }
+            .freqHz
+        val expectedLabel = "${formatMhz(targetHz)} MHz · $targetBand"
 
         try {
             // With the controls drawer on (the default) the BAND & MODE row is
@@ -80,8 +85,12 @@ class BandChangeFlowTest {
     private fun restoreBand(hz: Long) {
         if (GeneralVariables.band == hz) return
         val vm = MainViewModel.peekInstance() ?: return
-        Flows.onMain {
-            selectBandIndex(vm, compose.activity, OperationBand.getIndexByFreq(hz))
+        // Best effort: if the activity is gone (the flow crashed it), a throw
+        // here would replace the real failure in the report.
+        runCatching {
+            Flows.onMain {
+                selectBandIndex(vm, compose.activity, OperationBand.getIndexByFreq(hz))
+            }
         }
     }
 }
