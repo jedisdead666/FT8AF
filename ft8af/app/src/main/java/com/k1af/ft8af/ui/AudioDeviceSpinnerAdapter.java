@@ -132,6 +132,38 @@ public class AudioDeviceSpinnerAdapter extends BaseAdapter {
     }
 
     /**
+     * The {@code AudioManager}-recognized device's own product name at this
+     * position, when it's a USB-type entry (confirmed on real hardware: the
+     * QMX shows up this way as "USB-Audio - QMX Transceiver",
+     * TYPE_USB_DEVICE). Used by the picker to find and persist that device's
+     * VID:PID via {@link UsbAudioDevice#matchByProductName}, since {@code
+     * AudioDeviceInfo} itself exposes no VID:PID -- without this, every pick
+     * of a framework-routed USB device persisted VID 0 (the {@link
+     * #getUsbAudioDeviceInfo} path only covers USB-direct entries), so the
+     * VID:PID fallback in {@link #getPositionByDeviceId} (and in {@code
+     * MicRecorder}/{@code FT8TransmitSignal}) had nothing to fall back to.
+     *
+     * @return the product name, or null for the "Default" row, a non-USB
+     *     device, or a USB-direct entry (which already carries its own
+     *     VID:PID via {@link #getUsbAudioDeviceInfo})
+     */
+    public String getUsbFrameworkDeviceProductName(int position) {
+        if (position <= 0) return null;
+        int adPos = position - 1;
+        if (adPos >= audioDeviceList.size()) return null; // USB-direct entry
+        AudioDeviceInfo device = audioDeviceList.get(adPos);
+        if (!isUsbType(device.getType())) return null;
+        CharSequence name = device.getProductName();
+        return name == null ? null : name.toString();
+    }
+
+    private static boolean isUsbType(int type) {
+        return type == AudioDeviceInfo.TYPE_USB_DEVICE
+                || type == AudioDeviceInfo.TYPE_USB_HEADSET
+                || type == AudioDeviceInfo.TYPE_USB_ACCESSORY;
+    }
+
+    /**
      * Get the list position for a given device ID.
      * deviceId == 0 → 0 (Default)
      * deviceId > 0 → search AudioManager devices by id; if not found (stale

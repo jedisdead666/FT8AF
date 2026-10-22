@@ -47,6 +47,19 @@ public class UsbAudioDeviceResolveIndexTest {
     }
 
     @Test
+    public void fallsBackByContainment_whenAudioManagerDecoratesTheRawProductName() {
+        // The exact real-hardware mismatch found via dumpsys: UsbDevice.getProductName()
+        // gives "QMX Transceiver" (what callers persist/pass as fallbackProductName), but
+        // the AudioManager/AudioDeviceInfo list name for the same card is prefixed:
+        // "USB-Audio - QMX Transceiver". These are never byte-identical, so matching must
+        // be containment, not equality.
+        int[] ids = {1340};
+        String[] names = {"USB-Audio - QMX Transceiver"};
+        assertThat(UsbAudioDevice.resolveDeviceIndex(ids, names, 1285, "QMX Transceiver"))
+                .isEqualTo(0);
+    }
+
+    @Test
     public void nullProductNameEntries_doNotThrow() {
         // AudioDeviceInfo.getProductName() can legitimately return null.
         int[] ids = {1, 2};
