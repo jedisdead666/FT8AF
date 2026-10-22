@@ -121,81 +121,68 @@ silent. `FT_MODE` is back to `"RTTY"` (Digi, the QMX's correct intended mode
 for FT8), per `HamlibRig.java`'s own comment, which documents this full
 dead-end for future reference.
 
-### Current state and the real remaining lead
+### Several real leads chased and ruled out before the actual cause
 
 With both of the above bugs fixed, USB capture confirmed genuinely healthy
 (MediaTek `AudioALSACaptureHandlerUsb`/`AudioALSACaptureDataProviderUsb`
-opening correctly, 48kHz/24-bit stereo, thousands of continuous reads, zero
-`xrun`/`overrun`/error lines, correct device id, correct CAT/frequency),
-decode cycles were still consistently fast (~140ms, the empty-audio
-fingerprint vs. ~1100ms when real audio is present) with zero messages kept,
-across multiple clean fresh-launch tests and both CAT modes.
+opening correctly, continuous reads, zero `xrun`/`overrun`/error lines,
+correct device id, correct CAT/frequency), decode cycles were still
+consistently fast (~140ms, the empty-audio fingerprint vs. ~1100ms when real
+audio is present) with zero messages kept, across multiple clean
+fresh-launch tests. Two more theories were seriously chased and eventually
+ruled out by sharper evidence, in order:
 
-**The clearest lead found all night**: a third-party app, QFT8 (known from
-elsewhere in this project to work correctly against this exact
-phone+radio), decodes normally and immediately whenever it's given the
-device. Directly observed on real hardware, reproduced twice independently
-(not a one-off): audio was flowing (visible as waterfall traces) through the
-*OS's own* default handling of the QMX's USB Audio Class interface in the
-window right after a power-cycle, *before* the Android "choose an app"
-USB-device chooser was answered — and it stopped the instant FT8AF was
-selected in that chooser, both times. hamlib's QMX-specific open
-function (`qrplabs_open` in the vendored `ts480.c`) only queries firmware
-version on connect, nothing audio-related, so this isn't something FT8AF's
-CAT traffic does — it looks like simply Android granting FT8AF raw
-`UsbDeviceConnection` access to the composite device detaches it from
-whatever OS-level audio path was supplying real samples, independent of
-which audio-input option is selected in Settings and independent of CAT
-mode. QFT8 apparently doesn't trigger this (or recovers from it); the
-difference in exactly *how* it opens/handles the device is the open
-question. Also considered and not yet ruled out: the QMX's own `AG`
-(AF Gain/volume) CAT command, which hamlib's QMX backend does not implement
-at all (`qrplabs_qmx_caps` has no `.has_set_level`/`.set_level`) — FT8AF
-has never set this on any code path, so if a power-cycle resets it low and
-QFT8's own connect sequence sets it, that would independently explain
-silence-despite-healthy-capture too. The two leads aren't mutually
-exclusive and both need a real logcat-instrumented test to settle.
+- **OS-level USB-claim theory**: reproduced twice that audio flows through
+  Android's own default USB-audio handling right up until an app (FT8AF, and
+  also briefly FT8TW) is granted the device via the "choose an app" chooser,
+  then stops. Superseded below — not wrong exactly, but not the actual
+  mechanism; see the real cause.
+- **I/Q mode left on**: `danleetw/FT8TW` issue #78 ("For QMX/QMX+ set I/Q
+  mode off", closed as fixed) describes what reads as this exact symptom —
+  the QMX's `Q9`/IQ-mode CAT setting streams raw ADC I/Q samples to the USB
+  sound card instead of demodulated audio when left on. A side-by-side test
+  showed FT8TW (which carries Dan's `Q90;` fix) decoding while FT8AF
+  (fixed, pushed as `12815ecb`, sends `Q90;` on every connect) did not —
+  **but a later, much more precise test (below) directly disproved I/Q mode
+  as this session's actual cause**: the radio decoded fine in Digi/MD6 with
+  no `Q90;` ever sent. The `Q90;` fix is being kept anyway since it's a real,
+  externally-validated QMX fix for the scenario in that issue — just not
+  what was happening on this unit tonight.
 
-### The real fix (found, pushed, awaiting a clean build/test): I/Q mode left on
+### The actual root cause, found and fixed: requesting float capture breaks on this USB audio HAL
 
-Checking a related project turned the investigation around. Dan Lee's
-separate `danleetw/FT8TW` app hit what reads as the identical symptom on
-the QMX family: GitHub issue **danleetw/FT8TW#78** ("For QMX/QMX+ set I/Q
-mode off"), closed as fixed —
+A precise, repeated real-hardware A/B, with mode and every other variable
+held constant within a single running app process, found it: Android's own
+audio HAL log (`AudioALSAStreamIn`'s `set()` call) showed two different
+formats being negotiated across different opens of the *same* USB input —
+`fmt=5` (`ENCODING_PCM_FLOAT`, what `MicRecorder` was requesting) and
+`fmt=1` (`ENCODING_PCM_16BIT`). Every single `fmt=5` open was silent
+(zero messages kept, ~140ms decode fingerprint); every single `fmt=1` open
+decoded normally (real messages, ~1100ms decode fingerprint) — including
+two cases where the *same app process* flipped between the two, unprompted,
+across a USB re-enumeration, with CAT mode held at Digi/MD6 the entire time
+and decoding starting or stopping in exact lockstep with the format. The
+HAL's own log line explains why: `"wrong format(0x5), default use
+wordSize = 2"` — it silently falls back to a 16-bit internal word size while
+still being asked to hand back 4-byte floats, producing unusable samples
+with no error surfaced anywhere.
 
-> If I/Q mode is left on, it appears that FT8TW is working, but the
-> received audio is like noise. CAT command: Q90;
+This also directly explains the two superseded leads above: QFT8 and FT8TW
+decoding reliably is consistent with them requesting PCM16 (or getting it
+some other way) rather than float; the "audio dies the instant an app
+claims the device" observation was likely this same format mismatch
+happening to coincide with FT8AF's/FT8TW's own connect sequence, not a
+genuine Android USB-claim side effect.
 
-This matches the QMX's own CAT manual precisely: `Q9` (IQ Mode) streams
-**raw I/Q ADC samples** to the USB sound card instead of demodulated audio
-when enabled — a decoder expecting normal AF audio gets garbage/silence,
-while the USB capture pipeline itself stays completely healthy, exactly the
-symptom chased all night through mode, device-selection, and capture-
-lifecycle bugs. It's session-only (not written to EEPROM per the manual),
-which fits the whole night's pattern: if this unit's I/Q mode was left on
-via its own front-panel menu from earlier SDR use, it would default back on
-every power-cycle, and only an app that explicitly disables it on connect
-would ever decode again. FT8AF has never sent this command on any code
-path.
-
-A direct side-by-side test on this exact phone+radio confirmed it: FT8TW
-(which already carries Dan's fix) decoded normally; FT8AF, run immediately
-after under the same radio state, did not. (One earlier FT8TW attempt in
-this same session looked like a counter-example — silent right after the
-app was granted the device — but did not reproduce on a second try, which
-decoded fine; the live-signal/power-cycle environment made single data
-points noisy all night, which is part of why this took so long to pin
-down.)
-
-**Fixed and pushed** (`12815ecb`): `HamlibRig` now sends `"Q90;"` directly
-over the connector once per successful open — hamlib has no generic API for
-this QMX vendor-specific extended command, so it bypasses hamlib the same
-way the (correctly reverted) `Q41;` experiment did, but for a real,
-externally-validated command this time. Covered by a new unit test
-(`HamlibRigTest`) for the model-id gate and the exact bytes sent; the actual
-real-hardware confirmation is still pending a clean build/test cycle on the
-Windows laptop (offline at the moment this was written — message is queued
-for when it reconnects).
+**Fixed and pushed** (`38f8e9d8`): `MicRecorder` now requests
+`ENCODING_PCM_16BIT` (matching a commented-out line already present in the
+source, suggesting this was the original format before an earlier,
+unrelated change switched it to float) and converts to float in the reader
+loop via a new `int16ToFloat()` helper, matching the existing
+`float2Short()` inverse scale already used on the TX side. Covered by a new
+unit test file (`MicRecorderInt16ToFloatTest`). Real-hardware confirmation
+is pending the next clean build/test cycle on the Windows laptop (offline
+at the moment this was written — message is queued for when it reconnects).
 
 ## Known issue, not yet root-caused (TX, from 2026-10-21, not re-tested)
 
