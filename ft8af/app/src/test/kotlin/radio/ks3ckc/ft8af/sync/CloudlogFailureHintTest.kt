@@ -82,4 +82,85 @@ class CloudlogFailureHintTest {
         // "…does not belong to the API key owner" contains "api key"; the fix is still the station.
         assertThat(classifyCloudlogFailure(stationRejection)).isEqualTo(CloudlogFailureKind.STATION_ID)
     }
+
+    @Test
+    fun `a bracket or comma inside a message does not cut it short`() {
+        val f = "HTTP 400: {\"status\":\"abort\",\"messages\":[\"Import failed\",\"Invalid [BAND] value, see docs\"]}"
+
+        assertThat(cloudlogServerReason(f)).isEqualTo("Import failed; Invalid [BAND] value, see docs")
+    }
+
+    @Test
+    fun `standard json escapes are decoded`() {
+        val f = "HTTP 400: {\"reason\":\"caf\\u00e9 \\/ tab\\there \\\"q\\\"\"}"
+
+        assertThat(cloudlogServerReason(f)).isEqualTo("café / tab\there \"q\"")
+    }
+
+    @Test
+    fun `decodeJsonString keeps a malformed escape rather than dropping it`() {
+        assertThat(decodeJsonString("bad \\u12 end")).isEqualTo("bad \\u12 end")
+        assertThat(decodeJsonString("trailing \\")).isEqualTo("trailing \\")
+        assertThat(decodeJsonString("plain")).isEqualTo("plain")
+    }
+
+    @Test
+    fun `a truncated messages array falls back to the raw line`() {
+        val f = "HTTP 400: {\"status\":\"abort\",\"messages\":[\"first\",\"seco…"
+
+        assertThat(cloudlogServerReason(f)).isEqualTo(f)
+        assertThat(classifyCloudlogFailure(f)).isEqualTo(CloudlogFailureKind.OTHER)
+    }
+
+    @Test
+    fun `a messages array of non-strings falls back to the raw line`() {
+        val f = "HTTP 400: {\"messages\":[{\"x\":1}]}"
+
+        assertThat(cloudlogServerReason(f)).isEqualTo(f)
+    }
+
+    @Test
+    fun `a transport error naming a station host is not a station id problem`() {
+        val f = "Unknown host: station.example.com"
+
+        assertThat(classifyCloudlogFailure(f)).isEqualTo(CloudlogFailureKind.OTHER)
+        assertThat(cloudlogHintResId(f)).isNull()
+        assertThat(cloudlogFailureStopsBatch(f)).isFalse()
+    }
+
+    @Test
+    fun `an adif message about the station callsign is not a station id problem`() {
+        val f = "HTTP 400: {\"status\":\"abort\",\"messages\":[\"Wrong station callsign W1AW while importing QSO\"]}"
+
+        assertThat(classifyCloudlogFailure(f)).isEqualTo(CloudlogFailureKind.OTHER)
+    }
+
+    @Test
+    fun `station_profile_id wording is still a station id problem`() {
+        val f = "HTTP 400: {\"status\":\"failed\",\"reason\":\"station_profile_id missing\"}"
+
+        assertThat(classifyCloudlogFailure(f)).isEqualTo(CloudlogFailureKind.STATION_ID)
+    }
+
+    @Test
+    fun `only station and key rejections stop a batch`() {
+        assertThat(cloudlogFailureStopsBatch(stationRejection)).isTrue()
+        assertThat(cloudlogFailureStopsBatch("HTTP 401: {\"reason\":\"missing or wrong api key\"}")).isTrue()
+        assertThat(cloudlogFailureStopsBatch("HTTP 400: {\"messages\":[\"bad band\"]}")).isFalse()
+        assertThat(cloudlogFailureStopsBatch("Timed out: connect")).isFalse()
+        assertThat(cloudlogFailureStopsBatch(null)).isFalse()
+    }
+
+    @Test
+    fun `only an http answer from the server counts as a rejection`() {
+        assertThat(isCloudlogServerRejection(stationRejection)).isTrue()
+        assertThat(isCloudlogServerRejection("HTTP 502")).isTrue()
+        assertThat(isCloudlogServerRejection("HTTP 404 from https://x/index.php/api/qso")).isTrue()
+        assertThat(isCloudlogServerRejection("Unknown host: wavelog.example")).isFalse()
+        assertThat(isCloudlogServerRejection("Timed out: connect timed out")).isFalse()
+        assertThat(isCloudlogServerRejection("No response from https://x/api/qso")).isFalse()
+        assertThat(isCloudlogServerRejection("no server address configured")).isFalse()
+        assertThat(isCloudlogServerRejection("")).isFalse()
+        assertThat(isCloudlogServerRejection(null)).isFalse()
+    }
 }

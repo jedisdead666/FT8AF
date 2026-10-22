@@ -1,6 +1,7 @@
 package radio.ks3ckc.ft8af.ui.settings
 
 import com.google.common.truth.Truth.assertThat
+import com.k1af.ft8af.R
 import com.k1af.ft8af.log.ThirdPartyService
 import org.junit.Test
 
@@ -38,5 +39,24 @@ class StationIdCheckTest {
     @Test
     fun `no list means no verdict`() {
         assertThat(checkStationId("3", emptyList())).isEqualTo(StationIdCheck.UNKNOWN)
+    }
+
+    @Test
+    fun `blank id is a certain failure, not advisory`() {
+        assertThat(stationIdWarning(StationIdCheck.BLANK))
+            .isEqualTo(StationIdWarning(R.string.settings_station_id_missing, advisory = false))
+    }
+
+    @Test
+    fun `id missing from the list is only advisory`() {
+        // Wavelog may list only the active logbook's stations while uploads accept any of the user's.
+        assertThat(stationIdWarning(StationIdCheck.NOT_ON_SERVER))
+            .isEqualTo(StationIdWarning(R.string.settings_station_id_not_on_server, advisory = true))
+    }
+
+    @Test
+    fun `ok and unknown show nothing`() {
+        assertThat(stationIdWarning(StationIdCheck.OK)).isNull()
+        assertThat(stationIdWarning(StationIdCheck.UNKNOWN)).isNull()
     }
 }

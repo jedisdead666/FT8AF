@@ -1,5 +1,7 @@
 package radio.ks3ckc.ft8af.ui.settings
 
+import androidx.annotation.StringRes
+import com.k1af.ft8af.R
 import com.k1af.ft8af.log.ThirdPartyService
 
 /**
@@ -8,10 +10,11 @@ import com.k1af.ft8af.log.ThirdPartyService
  * Test Connection only proves the API key (`api/auth`), and the station list it fetches
  * afterwards is scoped to that key's owner. Wavelog rejects every QSO whose
  * `station_profile_id` is blank or belongs to a different user with
- * "station id does not belong to the API key owner." — so a Station ID that is blank, or
- * that doesn't appear in the fetched list, is going to fail before the operator ever
- * leaves Settings. Pure so it is unit-testable; the composable just maps the result to a
- * warning string.
+ * "station id does not belong to the API key owner." A blank Station ID is certain to
+ * fail. One missing from the fetched list only probably will: Wavelog's `station_info` is
+ * limited to the active logbook when the user has `active_log_only` set, while uploads
+ * check ownership against all of the user's stations, so that case is advisory. Pure so it
+ * is unit-testable; the composable just shows [stationIdWarning].
  */
 enum class StationIdCheck {
     /** The ID is one of the key owner's stations. */
@@ -20,7 +23,10 @@ enum class StationIdCheck {
     /** No ID entered at all. */
     BLANK,
 
-    /** The server listed stations for this key and this ID is not among them. */
+    /**
+     * The server listed stations for this key and this ID is not among them. Advisory: the
+     * list may be scoped to the active logbook (see the class doc).
+     */
     NOT_ON_SERVER,
 
     /** No station list to judge against (not fetched yet, or the key owner has none). */
@@ -36,3 +42,17 @@ internal fun checkStationId(
     if (stations.isEmpty()) return StationIdCheck.UNKNOWN
     return if (stations.any { it.stationId == id }) StationIdCheck.OK else StationIdCheck.NOT_ON_SERVER
 }
+
+/** A warning line under Test Connection: its text and whether it is advisory (vs. certain). */
+internal data class StationIdWarning(
+    @StringRes val messageRes: Int,
+    val advisory: Boolean,
+)
+
+/** The warning to show for [check], or null when there is nothing to say. */
+internal fun stationIdWarning(check: StationIdCheck): StationIdWarning? =
+    when (check) {
+        StationIdCheck.BLANK -> StationIdWarning(R.string.settings_station_id_missing, advisory = false)
+        StationIdCheck.NOT_ON_SERVER -> StationIdWarning(R.string.settings_station_id_not_on_server, advisory = true)
+        StationIdCheck.OK, StationIdCheck.UNKNOWN -> null
+    }

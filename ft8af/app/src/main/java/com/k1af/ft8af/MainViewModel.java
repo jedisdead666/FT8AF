@@ -1130,13 +1130,12 @@ public class MainViewModel extends ViewModel {
                             if (GeneralVariables.enableCloudlog){
                                 StringBuilder why = new StringBuilder();
                                 cloudlogOk = ThirdPartyService.UploadToCloudLog(qslRecord, why);
-                                if (!cloudlogOk && why.length() > 0) {
+                                if (!cloudlogOk) {
                                     // Say why on screen, not just in debug.log: a Station ID
                                     // from the wrong Wavelog user passes Test Connection and
-                                    // then rejects every QSO with no visible symptom.
-                                    ToastMessage.show(String.format(
-                                            getStringFromResource(R.string.cloudlog_upload_rejected),
-                                            CloudlogFailureHint.cloudlogFailureMessage(why.toString())));
+                                    // then rejects every QSO with no visible symptom. Only
+                                    // server rejections toast; no-signal stays queued.
+                                    CloudlogFailureHint.showCloudlogRejectionToast(why.toString());
                                 }
                             }
                             if (GeneralVariables.enableQRZ){
