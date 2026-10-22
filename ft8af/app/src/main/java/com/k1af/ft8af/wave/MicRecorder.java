@@ -767,7 +767,10 @@ public class MicRecorder {
             if (audioRecord != null && GeneralVariables.audioInputDeviceId > 0) {
                 AudioDeviceInfo deviceInfo = findAudioDeviceById(
                         GeneralVariables.audioInputDeviceId, AudioManager.GET_DEVICES_INPUTS);
-                audioRecord.setPreferredDevice(deviceInfo);
+                boolean ok = audioRecord.setPreferredDevice(deviceInfo);
+                GeneralVariables.fileLog(String.format(
+                        "MicRecorder: reinit preferredDevice id=%d ok=%b deviceFound=%b",
+                        GeneralVariables.audioInputDeviceId, ok, deviceInfo != null));
             }
         }
 
