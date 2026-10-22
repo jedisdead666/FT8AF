@@ -122,6 +122,14 @@ trait RigTransport: Send {
     fn requires_ptt_keepalive(&self) -> bool {
         false
     }
+    /// Whether a failed PTT-off at connect time must reject the connection.
+    /// True only for direct serial backends where an open can itself key the
+    /// radio. FLrig and Hamlib keep connecting on a failed PTT-off: FLrig may
+    /// not be running yet (it recovers lazily), and Hamlib rigs without CAT PTT
+    /// (VOX, receivers) answer `rig_set_ptt` with an error on every call.
+    fn ptt_off_required_on_connect(&self) -> bool {
+        false
+    }
 }
 
 /// The engine's handle to whatever backend is configured.
@@ -161,13 +169,17 @@ impl RigConnection {
 }
 
 /// Put a newly-opened rig in a known receive state before exposing the
-/// connection to the engine. A failure to send PTT-off is safety-critical and
-/// must fail the connection rather than leave a possibly keyed radio marked as
-/// connected. Mode selection remains best-effort for older rigs.
+/// connection to the engine. For backends that opt in
+/// ([`RigTransport::ptt_off_required_on_connect`]) a failure to send PTT-off is
+/// safety-critical and fails the connection rather than leave a possibly keyed
+/// radio marked as connected; other backends keep the previous best-effort
+/// behaviour. Mode selection remains best-effort for older rigs.
 fn initialize_connection(inner: Box<dyn RigTransport>) -> anyhow::Result<RigConnection> {
     let mut conn = RigConnection { inner };
-    conn.set_ptt(false)
-        .context("failed to establish receive/PTT-off state")?;
+    let ptt_off = conn.set_ptt(false);
+    if conn.inner.ptt_off_required_on_connect() {
+        ptt_off.context("failed to establish receive/PTT-off state")?;
+    }
     let _ = conn.set_data_mode();
     Ok(conn)
 }
@@ -308,6 +320,10 @@ impl RigTransport for G106 {
     }
 
     fn requires_ptt_keepalive(&self) -> bool {
+        true
+    }
+
+    fn ptt_off_required_on_connect(&self) -> bool {
         true
     }
 }
@@ -683,6 +699,7 @@ mod tests {
     struct RecordingTransport {
         events: Arc<Mutex<Vec<&'static str>>>,
         fail_ptt_off: bool,
+        strict_ptt_off: bool,
     }
 
     impl RigTransport for RecordingTransport {
@@ -713,6 +730,10 @@ mod tests {
 
         fn connected(&self) -> bool {
             true
+        }
+
+        fn ptt_off_required_on_connect(&self) -> bool {
+            self.strict_ptt_off
         }
     }
 
@@ -781,6 +802,7 @@ mod tests {
         let transport = RecordingTransport {
             events: events.clone(),
             fail_ptt_off: false,
+            strict_ptt_off: true,
         };
 
         let _connection = initialize_connection(Box::new(transport)).unwrap();
@@ -793,6 +815,7 @@ mod tests {
         let transport = RecordingTransport {
             events: events.clone(),
             fail_ptt_off: true,
+            strict_ptt_off: true,
         };
 
         let error = initialize_connection(Box::new(transport))
@@ -802,6 +825,32 @@ mod tests {
             .to_string()
             .contains("failed to establish receive/PTT-off state"));
         assert_eq!(*events.lock().unwrap(), vec!["ptt-off"]);
+    }
+
+    /// FLrig (not running yet) and Hamlib rigs without CAT PTT fail PTT-off on
+    /// every call; they must still connect, as they did before G106 support.
+    #[test]
+    fn non_strict_backends_still_connect_when_ptt_off_fails() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let transport = RecordingTransport {
+            events: events.clone(),
+            fail_ptt_off: true,
+            strict_ptt_off: false,
+        };
+
+        assert!(initialize_connection(Box::new(transport)).is_ok());
+        assert_eq!(*events.lock().unwrap(), vec!["ptt-off", "data-mode"]);
+    }
+
+    #[test]
+    fn flrig_and_null_backends_do_not_require_ptt_off_on_connect() {
+        assert!(!NullTransport.ptt_off_required_on_connect());
+        let flrig = Flrig {
+            url: "http://127.0.0.1:1/".into(),
+            connected: false,
+            radio: "FLrig".into(),
+        };
+        assert!(!flrig.ptt_off_required_on_connect());
     }
 
     /// A config persisted by an older build (with the now-removed serial fields

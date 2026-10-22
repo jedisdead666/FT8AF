@@ -71,8 +71,7 @@ public class XieGuRig extends BaseRig {
         if (getConnector() != null) {
             switch (getControlMode()) {
                 case ControlMode.CAT://via CAT command
-                    getConnector().setPttOn(IcomRigConstant.setPTTState(ctrAddress, getCivAddress()
-                            , on ? IcomRigConstant.PTT_ON : IcomRigConstant.PTT_OFF));
+                    getConnector().setPttOn(catPttFrame(on));
                     break;
                 case ControlMode.RTS:
                 case ControlMode.DTR:
@@ -80,6 +79,12 @@ public class XieGuRig extends BaseRig {
                     break;
             }
         }
+    }
+
+    /** The CI-V PTT on/off frame for this rig's address. */
+    protected byte[] catPttFrame(boolean on) {
+        return IcomRigConstant.setPTTState(ctrAddress, getCivAddress()
+                , on ? IcomRigConstant.PTT_ON : IcomRigConstant.PTT_OFF);
     }
 
     @Override

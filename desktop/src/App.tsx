@@ -31,6 +31,7 @@ import {
 } from "./logbook";
 import { applySelection, configToSelection, rigName, rigOptions } from "./rig";
 import { debounce } from "./debounce";
+import { audioDeviceLabel } from "./audioDevice";
 
 type Tab = "decode" | "log" | "settings";
 type Filter = "all" | "cq" | "tome";
@@ -826,18 +827,6 @@ const WF_WINDOW_LABELS: Record<WfWindow, string> = {
 };
 const WF_FFT_SIZES = [512, 1024, 2048, 4096, 8192];
 const WF_AVG_OPTIONS = [1, 2, 3, 4, 6, 8, 12, 16];
-
-function audioDeviceLabel(device: AudioDevice): string {
-  // ALSA often exposes the DE-19's C-Media codec as the generic card name
-  // "Device". Keep the real identifier visible while making it recognizable.
-  if (device.name.includes("CARD=Device")) {
-    const recommended = device.name.startsWith("plughw:") ? " — recommended" : "";
-    return `USB Audio Device (DE-19) — ${device.name}${recommended}`;
-  }
-  if (device.name === "pipewire") return "PipeWire sound server";
-  if (device.name === "default") return "Linux system default";
-  return device.name;
-}
 
 // Add/edit/delete operator-defined dial frequencies (issue #470). Custom dials
 // persist in the config store and are merged into the band picker (shown with a

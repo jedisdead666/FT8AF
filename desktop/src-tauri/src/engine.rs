@@ -6,7 +6,7 @@
 
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +35,10 @@ const TX_LATEST_MS: i64 = TX_SLACK_MS - PTT_DELAY_MS as i64;
 // 13.2 s keeps a comfortable margin above the 12.64 s waveform end.
 const DECODE_AT_MS: i64 = 13_200;
 const DEFAULT_TX_AUDIO_HZ: i32 = 1_500;
+/// How often a rig that drops CAT PTT on its own (the Xiegu G106 releases after
+/// ~2 s) gets its PTT-on frame refreshed while keyed. Measured on a monotonic
+/// clock so an NTP correction mid-over can't stall it past the rig's timeout.
+const PTT_KEEPALIVE_INTERVAL: Duration = Duration::from_millis(1_000);
 // Usable TX audio-offset passband (Hz). Real FT8 audio tones live well inside
 // this; both the base-freq setter and an inbound WSJT-X Reply's requested `df`
 // validate against it.
@@ -420,6 +424,9 @@ struct Engine {
     /// receive clock after a decode can remove the next slot's leading sync block.
     rx_offset_ms: i64,
     last_tick_ms: i64,
+    /// Monotonic time the PTT-on frame was last sent (None while unkeyed).
+    /// Drives the CAT PTT keepalive independently of the NTP-corrected clock.
+    last_ptt_on_sent: Option<Instant>,
     tx_parity: Option<i64>,
     clock_offset_ms: i64,
     time_synced: bool,
@@ -440,8 +447,16 @@ struct Engine {
     last_udp_heartbeat_ms: i64,
 }
 
-fn should_refresh_ptt(ptt_on: bool, rig_requires_keepalive: bool) -> bool {
-    ptt_on && rig_requires_keepalive
+/// Whether the keepalive should resend PTT-on now. `since_last_on` is the
+/// monotonic time since the last PTT-on frame (None = never sent this over).
+fn should_refresh_ptt(
+    ptt_on: bool,
+    rig_requires_keepalive: bool,
+    since_last_on: Option<Duration>,
+) -> bool {
+    ptt_on
+        && rig_requires_keepalive
+        && since_last_on.map_or(true, |d| d >= PTT_KEEPALIVE_INTERVAL)
 }
 
 impl Engine {
@@ -541,6 +556,7 @@ impl Engine {
             pending_decodes: 0,
             rx_offset_ms,
             last_tick_ms: 0,
+            last_ptt_on_sent: None,
             tx_parity: None,
             clock_offset_ms: saved_offset.unwrap_or(0),
             time_synced: saved_offset.is_some(),
@@ -633,8 +649,12 @@ impl Engine {
                         silent: db <= SILENCE_DBFS,
                     }));
                 }
-                self.refresh_ptt_keepalive();
             }
+
+            // CAT PTT keepalive (G106). Checked every loop pass against a
+            // monotonic clock, not on the 1 Hz UI tick, which runs on the
+            // NTP-corrected clock and can stall when the offset steps backwards.
+            self.refresh_ptt_keepalive();
 
             // Decode stays anchored to the UTC slot. Do not shift this from a
             // decoded message's DT: doing so changes the sample chosen as the slot
@@ -847,6 +867,7 @@ impl Engine {
             }
         }
         self.ptt = on;
+        self.last_ptt_on_sent = if on { Some(Instant::now()) } else { None };
         self.publish_rig_status();
     }
 
@@ -856,13 +877,22 @@ impl Engine {
             .as_ref()
             .map(|rig| rig.requires_ptt_keepalive())
             .unwrap_or(false);
-        if !should_refresh_ptt(self.ptt, required) {
+        let since_last_on = self.last_ptt_on_sent.map(|t| t.elapsed());
+        if !should_refresh_ptt(self.ptt, required, since_last_on) {
             return;
         }
 
         let result = self.rig.as_mut().map(|rig| rig.set_ptt(true));
+        self.last_ptt_on_sent = Some(Instant::now());
         if let Some(Err(e)) = result {
+            // The rig will drop PTT on its own within ~2 s, so don't keep
+            // playing audio into an unkeyed radio or re-error every second:
+            // end this over (stops playback, sends a best-effort PTT-off).
             self.emit(EngineEvent::Error(format!("PTT keepalive failed: {e}")));
+            self.finalize_tx();
+            if self.ptt {
+                self.set_ptt(false);
+            }
         }
     }
 
@@ -1297,18 +1327,48 @@ mod tests {
     use super::{
         clamp_rx_gain, clamp_tx_gain, reply_tx_audio_hz, rms_dbfs, should_refresh_ptt,
         wf_boundary_row, Engine, CYCLE_MS, DEFAULT_RX_GAIN, DEFAULT_TX_GAIN, MAX_TX_AUDIO_HZ,
-        MIN_TX_AUDIO_HZ, SILENCE_DBFS,
+        MIN_TX_AUDIO_HZ, PTT_KEEPALIVE_INTERVAL, SILENCE_DBFS,
     };
     use crate::db::Db;
     use crate::dsp::DecodedMessage;
     use std::sync::Arc;
+    use std::time::Duration;
 
     #[test]
     fn ptt_keepalive_only_runs_for_keyed_radios_that_require_it() {
-        assert!(should_refresh_ptt(true, true));
-        assert!(!should_refresh_ptt(false, true));
-        assert!(!should_refresh_ptt(true, false));
-        assert!(!should_refresh_ptt(false, false));
+        let due = Some(PTT_KEEPALIVE_INTERVAL);
+        assert!(should_refresh_ptt(true, true, due));
+        assert!(!should_refresh_ptt(false, true, due));
+        assert!(!should_refresh_ptt(true, false, due));
+        assert!(!should_refresh_ptt(false, false, due));
+    }
+
+    #[test]
+    fn ptt_keepalive_waits_for_its_monotonic_interval() {
+        // Not yet due: the PTT-on frame went out less than the interval ago.
+        assert!(!should_refresh_ptt(true, true, Some(Duration::from_millis(400))));
+        // Due once the interval has elapsed, and well inside the G106's ~2 s release.
+        assert!(should_refresh_ptt(true, true, Some(Duration::from_millis(1_000))));
+        assert!(PTT_KEEPALIVE_INTERVAL < Duration::from_millis(2_000));
+        // Never sent this over (e.g. the initial key-up raced a reconnect): send now.
+        assert!(should_refresh_ptt(true, true, None));
+    }
+
+    #[test]
+    fn unkeying_clears_the_keepalive_timestamp() {
+        let db = Arc::new(Db::open_in_memory().expect("in-memory db"));
+        let (evt_tx, _evt_rx) = std::sync::mpsc::channel();
+        let (cmd_tx, _cmd_rx) = std::sync::mpsc::channel();
+        let mut engine = Engine::new(Arc::clone(&db), evt_tx, cmd_tx);
+
+        engine.set_ptt(true);
+        assert!(engine.last_ptt_on_sent.is_some());
+        engine.set_ptt(false);
+        assert!(engine.last_ptt_on_sent.is_none());
+        // Unkeyed: the keepalive is a no-op and must not re-key.
+        engine.refresh_ptt_keepalive();
+        assert!(!engine.ptt);
+        assert!(engine.last_ptt_on_sent.is_none());
     }
 
     #[test]

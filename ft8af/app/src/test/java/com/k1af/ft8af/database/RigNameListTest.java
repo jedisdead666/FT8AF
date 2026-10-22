@@ -35,7 +35,7 @@ public class RigNameListTest {
 
     @Test
     public void rigNameStringConstructor_parsesG106Profile() {
-        RigNameList.RigName r = new RigNameList.RigName("XIEGU G106(USB),70,19200,26");
+        RigNameList.RigName r = new RigNameList.RigName("XIEGU G106(USB),70,19200,28");
         assertThat(r.modelName).isEqualTo("XIEGU G106(USB)");
         assertThat(r.address).isEqualTo(0x70);
         assertThat(r.bauRate).isEqualTo(19200);
