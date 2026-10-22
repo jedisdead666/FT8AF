@@ -29,9 +29,10 @@ public class LogFileImport {
 
     // Defensive cap on a single import. This path is reachable from the built-in web-logger
     // HTTP upload (LogHttpServer -> new LogFileImport), so an unbounded read of a huge/hostile
-    // upload could OOM the app. 50 MB comfortably fits a real-world lifetime ADIF log, matching
-    // the sibling ImportSharedLogs.MAX_IMPORT_BYTES cap.
-    static final int MAX_IMPORT_BYTES = 50 * 1024 * 1024;
+    // upload could OOM the app. 200 MB comfortably covers a real-world lifetime ADIF log,
+    // matching the sibling ImportSharedLogs.MAX_IMPORT_BYTES cap (a 50 MB cap rejected an
+    // 87 MB real log -- issue report).
+    static final int MAX_IMPORT_BYTES = 200 * 1024 * 1024;
 
     private final String fileContext;
     private final HashMap<Integer,String> errorLines=new HashMap<>();

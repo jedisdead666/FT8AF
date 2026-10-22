@@ -15,8 +15,9 @@ import java.util.Locale;
 public class ImportSharedLogs {
     private static final String TAG = "ImportSharedLogs";
     // Cap shared file size so a hostile (or just oversized) .adi opened via the VIEW intent
-    // cannot OOM the app. 50 MB comfortably fits a real-world lifetime ADIF log.
-    private static final int MAX_IMPORT_BYTES = 50 * 1024 * 1024;
+    // cannot OOM the app. 200 MB comfortably covers a real-world lifetime ADIF log, including
+    // active contesters' (a 50 MB cap rejected an 87 MB real log -- issue report).
+    private static final int MAX_IMPORT_BYTES = 200 * 1024 * 1024;
     // Reject individual ADIF field lengths above this to avoid pathological allocations in
     // substring() when a record claims a multi-megabyte field.
     private static final int MAX_ADIF_FIELD_LEN = 64 * 1024;
