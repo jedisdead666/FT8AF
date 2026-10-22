@@ -2436,34 +2436,20 @@ public class MainViewModel extends ViewModel {
             case InstructionSet.KENWOOD_TS440:
                 baseRig = new KenwoodTS440Rig();//KENWOOD TS-440S (TS-570 CAT, USB mode)
                 break;
-            case InstructionSet.HAMLIB:
+            case InstructionSet.HAMLIB: {
                 // hamlib model number is carried in the rig table's address column
-                // (parsed base-16), e.g. FT-891 = 1036 = 0x40C. Uses hamlibModelId,
-                // not civAddress -- civAddress's persistence is byte-masked (a real
-                // ICOM CI-V address is a byte; a hamlib model ID routinely isn't),
-                // which silently truncated it (2057 -> 9) on every app restart.
-                if (GeneralVariables.hamlibModelId <= 0) {
-                    // One-time migration for an install that selected a Hamlib rig
-                    // before the "hamlibModel" config key existed (or any other way
-                    // it ended up unset) -- self-heal from the still-correct selected
-                    // rig entry rather than leaving it at the unset default, which
-                    // HamlibRig.ensureOpen() now refuses to open at all (a real
-                    // model-0 hand-off previously aborted the whole process).
-                    android.content.Context ctx = GeneralVariables.getMainContext();
-                    if (ctx != null) {
-                        RigNameList.RigName model = RigNameList.getInstance(ctx)
-                                .getRigNameByIndex(GeneralVariables.modelNo);
-                        if (model != null && model.address > 0) {
-                            GeneralVariables.hamlibModelId = model.address;
-                            if (databaseOpr != null) {
-                                databaseOpr.writeConfig("hamlibModel",
-                                        String.valueOf(model.address), null);
-                            }
-                        }
-                    }
-                }
-                baseRig = new HamlibRig(GeneralVariables.hamlibModelId);
+                // (parsed base-16), e.g. FT-891 = 1036 = 0x40C. Derived fresh from the
+                // selected rig entry (HamlibRig.modelIdFor), not persisted separately --
+                // a separate "hamlibModel" config key existed briefly but could go stale
+                // or hold a non-hamlib address (civAddress's own persistence is byte-
+                // masked, a real ICOM CI-V address being a byte where a hamlib model ID
+                // routinely isn't, so it can't carry this value either).
+                android.content.Context ctx = GeneralVariables.getMainContext();
+                RigNameList.RigName selected = ctx == null ? null
+                        : RigNameList.getInstance(ctx).getRigNameByIndex(GeneralVariables.modelNo);
+                baseRig = new HamlibRig(HamlibRig.modelIdFor(selected));
                 break;
+            }
         }
 
         // Store the rig name for PSKReporter software string.

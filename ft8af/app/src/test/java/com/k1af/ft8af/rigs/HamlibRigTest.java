@@ -3,11 +3,17 @@ package com.k1af.ft8af.rigs;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.k1af.ft8af.connector.BaseRigConnector;
+import com.k1af.ft8af.database.ControlMode;
+import com.k1af.ft8af.database.RigNameList;
+import com.k1af.ft8af.wave.HamlibNative;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
@@ -115,7 +121,7 @@ public class HamlibRigTest {
 
     /** Captures the last byte[] written, standing in for the real serial link. */
     private static BaseRigConnector recordingConnector(AtomicReference<byte[]> sent) {
-        return new BaseRigConnector() {
+        return new BaseRigConnector(ControlMode.CAT) {
             @Override
             public synchronized void sendData(byte[] data) {
                 sent.set(data);
@@ -142,5 +148,166 @@ public class HamlibRigTest {
         AtomicReference<byte[]> sent = new AtomicReference<>();
         rig.disableQmxIqModeIfApplicable(recordingConnector(sent));
         assertThat(sent.get()).isNull();
+    }
+
+    // ---- finding 2: FT_MODE must be per-model, not global ----------------
+
+    @Test
+    public void ftModeFor_qmx_isRTTY() {
+        // RTTY -> kenwood_mode_table index 6 -> "MD6;", the QMX's own Digi mode.
+        assertThat(HamlibRig.ftModeFor(0x809)).isEqualTo("RTTY");
+    }
+
+    @Test
+    public void ftModeFor_otherHamlibRig_isPKTUSB() {
+        // 1036 = Yaesu FT-891 (Hamlib). PKTUSB (DATA-USB) is correct for it;
+        // RTTY would wrongly select RTTY-LSB on newcat.
+        assertThat(HamlibRig.ftModeFor(1036)).isEqualTo("PKTUSB");
+    }
+
+    // ---- finding 5: hamlib model id derives from the selected rig entry ---
+
+    @Test
+    public void modelIdFor_null_isZero() {
+        assertThat(HamlibRig.modelIdFor(null)).isEqualTo(0);
+    }
+
+    @Test
+    public void modelIdFor_nonHamlibEntry_isZero() {
+        // An ICOM entry's address (0xA4) is a CI-V address, not a hamlib model id.
+        RigNameList.RigName icom = new RigNameList.RigName(
+                "ICOM IC-705", 0xA4, 19200, InstructionSet.ICOM);
+        assertThat(HamlibRig.modelIdFor(icom)).isEqualTo(0);
+    }
+
+    @Test
+    public void modelIdFor_qmxEntry_is2057() {
+        RigNameList.RigName qmx = new RigNameList.RigName(
+                "Qrp Labs QMX (Hamlib)", 0x809, 9600, InstructionSet.HAMLIB);
+        assertThat(HamlibRig.modelIdFor(qmx)).isEqualTo(2057);
+    }
+
+    @Test
+    public void modelIdFor_ft891Entry_is1036() {
+        RigNameList.RigName ft891 = new RigNameList.RigName(
+                "Yaesu FT-891 (Hamlib)", 0x40C, 38400, InstructionSet.HAMLIB);
+        assertThat(HamlibRig.modelIdFor(ft891)).isEqualTo(1036);
+    }
+
+    // ---- findings 3/4: open/close races, exercised via a fake NativeApi ---
+
+    /** A connector that reports itself as already connected, with no real transport. */
+    private static BaseRigConnector connectedConnector() {
+        return new BaseRigConnector(ControlMode.CAT) {
+            @Override
+            public boolean isConnected() {
+                return true;
+            }
+        };
+    }
+
+    /**
+     * Deterministic fake for {@link HamlibRig.NativeApi}. {@code HamlibNative}
+     * can't drive these races at all on the JVM ({@code isAvailable()} is
+     * hard-wired false with no {@code libft8af.so}), so this stands in for the
+     * native bridge: handles are plain incrementing longs, and {@code
+     * duringRigOpen} can block the worker thread mid-open to let a test fire a
+     * concurrent {@code onDisconnecting()} at a precise, repeatable point.
+     */
+    private static class FakeNativeApi implements HamlibRig.NativeApi {
+        private final AtomicLong nextHandle = new AtomicLong(1);
+        final List<Integer> createCalls = new CopyOnWriteArrayList<>();
+        final List<Long> closeCalls = new CopyOnWriteArrayList<>();
+        final List<Long> setFreqCalls = new CopyOnWriteArrayList<>();
+        volatile int rigOpenRc = 0;
+        volatile Runnable duringRigOpen;
+
+        @Override public boolean isAvailable() { return true; }
+
+        @Override public long nativeCreate(int modelId, HamlibNative.HamlibSink sink) {
+            createCalls.add(modelId);
+            return nextHandle.getAndIncrement();
+        }
+
+        @Override public int nativeRigOpen(long handle) {
+            if (duringRigOpen != null) duringRigOpen.run();
+            return rigOpenRc;
+        }
+
+        @Override public void nativeFeedFromRig(long handle, byte[] data) { }
+
+        @Override public int nativeSetFreq(long handle, long hz) {
+            setFreqCalls.add(handle);
+            return 0;
+        }
+
+        @Override public long nativeGetFreq(long handle) { return -1; }
+
+        @Override public int nativeSetMode(long handle, String mode) { return 0; }
+
+        @Override public int nativeSetPtt(long handle, boolean on) { return 0; }
+
+        @Override public void nativeClose(long handle) { closeCalls.add(handle); }
+    }
+
+    @Test
+    public void ensureOpen_failedRigOpen_releasesHandleExactlyOnce() throws Exception {
+        // Finding 3: nativeRigOpen() no longer frees the bridge itself on failure
+        // (that used to race nativeFeedFromRig on the serial thread); HamlibRig
+        // must release it exactly once via releaseHandle()/nativeClose instead.
+        FakeNativeApi fake = new FakeNativeApi();
+        fake.rigOpenRc = -1; // force rig_open() failure
+        HamlibRig rig = new HamlibRig(2057, fake);
+        rig.setConnector(connectedConnector());
+
+        rig.setFreqToRig();
+        CountDownLatch drained = new CountDownLatch(1);
+        rig.submitForTest(drained::countDown); // FIFO marker: runs after setFreqToRig's task
+        assertThat(drained.await(5, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(fake.createCalls).containsExactly(2057);
+        assertThat(fake.closeCalls).containsExactly(1L);
+        assertThat(fake.setFreqCalls).isEmpty(); // open failed, so the CAT call itself never ran
+    }
+
+    @Test
+    public void onDisconnecting_duringInFlightOpen_releasesExactlyOnceWithNoClobber() throws Exception {
+        // Finding 4: the old onDisconnecting() read/cleared the `handle` field
+        // directly on the caller's thread, racing the worker thread mid-ensureOpen()
+        // -- depending on timing that either leaked the bridge ensureOpen was about
+        // to publish, or let a later ensureOpen() recreate a handle the queued close
+        // could never release. Now onDisconnecting() only ever submits releaseHandle()
+        // to the SAME single worker thread ensureOpen() runs on, so the two can never
+        // interleave -- the queued close always runs strictly after the open finishes.
+        FakeNativeApi fake = new FakeNativeApi();
+        CountDownLatch openStarted = new CountDownLatch(1);
+        CountDownLatch openMayFinish = new CountDownLatch(1);
+        fake.duringRigOpen = () -> {
+            openStarted.countDown();
+            try {
+                openMayFinish.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        };
+        fake.rigOpenRc = 0; // the open succeeds once released below
+
+        HamlibRig rig = new HamlibRig(2057, fake);
+        rig.setConnector(connectedConnector());
+
+        rig.setFreqToRig(); // worker: nativeCreate -> publish handle=1 -> blocks in nativeRigOpen
+        assertThat(openStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // "Disconnect" fires here, concurrently with the in-flight open, from this
+        // (non-worker) thread -- exactly the scenario finding 4 describes.
+        rig.onDisconnecting();
+
+        openMayFinish.countDown();
+        rig.awaitWorkerForTest();
+
+        // The open completed using the real handle (1), unclobbered by the
+        // concurrent disconnect, and the handle was released exactly once.
+        assertThat(fake.setFreqCalls).containsExactly(1L);
+        assertThat(fake.closeCalls).containsExactly(1L);
     }
 }

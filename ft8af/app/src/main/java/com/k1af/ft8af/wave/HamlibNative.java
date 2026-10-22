@@ -71,9 +71,10 @@ public final class HamlibNative {
      * from {@link #nativeCreate}. The caller must have already published the
      * handle so inbound bytes during the handshake reach {@link #nativeFeedFromRig}.
      *
-     * @return 0 (RIG_OK) on success, or a hamlib error code. On any non-zero
-     *     return the bridge has already been fully torn down and freed —
-     *     the handle must not be used again.
+     * @return 0 (RIG_OK) on success, or a hamlib error code. Either way the
+     *     bridge is left alive; the caller must release it with
+     *     {@link #nativeClose} exactly once (success or failure), never
+     *     concurrently with {@link #nativeFeedFromRig}.
      */
     public static native int nativeRigOpen(long handle);
 

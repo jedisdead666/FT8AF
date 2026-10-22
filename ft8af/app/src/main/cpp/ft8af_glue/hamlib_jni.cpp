@@ -65,6 +65,7 @@ struct HamlibBridge {
     jobject sink = nullptr;   // global ref to HamlibNative.HamlibSink
     jmethodID onBytesToRig = nullptr;
     int model_id = 0;   // for logging only; set in nativeCreate, read in nativeRigOpen
+    bool opened = false;   // rig_open() succeeded; nativeClose only rig_close()s then
 };
 
 // ---- pump thread: hamlib's outbound CAT bytes -> Java sink ------------------
@@ -207,13 +208,16 @@ Java_com_k1af_ft8af_wave_HamlibNative_nativeCreate(JNIEnv *env, jclass,
  * handle to HamlibRig.handle before calling this, so nativeFeedFromRig can
  * deliver bytes the radio sends during rig_open()'s own handshake.
  *
- * Returns RIG_OK (0) on success, or a (negative) hamlib error code. On
- * failure the bridge is fully torn down and freed here, same as the
- * original single-call nativeOpen's failure path — the handle must not be
- * used again by the caller after a non-zero return.
+ * Returns RIG_OK (0) on success, or a (negative) hamlib error code. Either
+ * way the bridge is left alive: the caller (HamlibRig) owns releasing it via
+ * nativeClose, exactly once, never concurrently with nativeFeedFromRig. A
+ * free done here on failure raced the serial read thread, which can still be
+ * inside nativeFeedFromRig(handle, …) on this same handle — the radio is
+ * actively replying to the handshake when rig_open() fails, so that race was
+ * not theoretical.
  */
 JNIEXPORT jint JNICALL
-Java_com_k1af_ft8af_wave_HamlibNative_nativeRigOpen(JNIEnv *env, jclass,
+Java_com_k1af_ft8af_wave_HamlibNative_nativeRigOpen(JNIEnv *, jclass,
                                                      jlong handle) {
     auto *b = handle_to_bridge(handle);
     if (b == nullptr) return -1;
@@ -221,23 +225,9 @@ Java_com_k1af_ft8af_wave_HamlibNative_nativeRigOpen(JNIEnv *env, jclass,
     int rc = rig_open(b->rig);
     if (rc != RIG_OK) {
         LOGE("rig_open failed: %d (%s)", rc, rigerror(rc));
-        b->running = false;
-        // The pump thread may still be blocked in accept() (hamlib never
-        // connected). Close the listener FIRST to release accept(); if it did
-        // connect, shutting down srv_fd releases a blocked read(). Only then is
-        // pthread_join safe — otherwise it would hang forever.
-        int lfd = b->listen_fd.exchange(-1);
-        if (lfd >= 0) { shutdown(lfd, SHUT_RDWR); close(lfd); }
-        int sfd = b->srv_fd.load();
-        if (sfd >= 0) shutdown(sfd, SHUT_RDWR);
-        pthread_join(b->pump, nullptr);
-        rig_cleanup(b->rig);
-        env->DeleteGlobalRef(b->sink);
-        sfd = b->srv_fd.load();
-        if (sfd >= 0) close(sfd);
-        delete b;
-        return rc;
+        return rc;   // caller still owns the bridge and frees it via nativeClose
     }
+    b->opened = true;
     LOGI("hamlib rig %d opened", b->model_id);
     return RIG_OK;
 }
@@ -322,7 +312,10 @@ Java_com_k1af_ft8af_wave_HamlibNative_nativeClose(JNIEnv *env, jclass, jlong han
     int sfd = b->srv_fd.load();
     if (sfd >= 0) shutdown(sfd, SHUT_RDWR);
     if (b->pump) pthread_join(b->pump, nullptr);
-    if (b->rig) { rig_close(b->rig); rig_cleanup(b->rig); }
+    if (b->rig) {
+        if (b->opened) rig_close(b->rig);
+        rig_cleanup(b->rig);
+    }
     sfd = b->srv_fd.load();
     if (sfd >= 0) close(sfd);
     if (b->sink) env->DeleteGlobalRef(b->sink);

@@ -212,7 +212,6 @@ fun RadioAudioSettings(
                 modelNo = actualIndex
                 GeneralVariables.instructionSet = selectedRig.instructionSet
                 GeneralVariables.civAddress = selectedRig.address
-                GeneralVariables.hamlibModelId = selectedRig.address
                 GeneralVariables.baudRate = selectedRig.bauRate
                 baudRate = selectedRig.bauRate
                 mainViewModel.setCivAddress()
@@ -234,12 +233,6 @@ fun RadioAudioSettings(
                 )
                 GeneralVariables.civAddressStored = encodedCiv
                 GeneralVariables.civAddressFormatKnown = true
-                // Separate key, plain decimal, no byte masking: a hamlib model ID (e.g.
-                // 2057 for the QMX) routinely exceeds a byte, unlike a real CI-V address,
-                // so it cannot round-trip through CivAddressConfig.encode()'s "& 0xFF".
-                mainViewModel.databaseOpr.writeConfig(
-                    "hamlibModel", GeneralVariables.hamlibModelId.toString(), null,
-                )
             },
         )
     }

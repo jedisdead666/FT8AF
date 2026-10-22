@@ -3,11 +3,13 @@ package com.k1af.ft8af.rigs;
 import android.util.Log;
 
 import com.k1af.ft8af.connector.BaseRigConnector;
+import com.k1af.ft8af.database.RigNameList;
 import com.k1af.ft8af.wave.HamlibNative;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * A {@link BaseRig} backed by hamlib instead of a hand-rolled per-manufacturer
@@ -28,37 +30,44 @@ public class HamlibRig extends BaseRig {
     private static final String TAG = "HamlibRig";
 
     /**
-     * hamlib mode string for FT8/FT4. NOT "PKTUSB": hamlib's generic Kenwood
-     * mode table (rigs/kenwood/kenwood.c's kenwood_mode_table, which the QMX
-     * backend falls back to since it sets no override) maps RIG_MODE_PKTUSB
-     * to table index 13, which kenwood_set_mode() then encodes as the ASCII
-     * character 'D' ('A' + 13 - 10) -- producing "MDD;". The QMX's own CAT
-     * manual (qrp-labs.com/images/qmx/manuals/cat_1_04_003.pdf) only accepts
-     * single-digit MD values (1,2,3,5,6,7,8,9); 'D' is not one of them and is
-     * silently rejected, so the radio's mode was never actually being set at
-     * all via this path. Table index 6 holds RIG_MODE_RTTY ("FSK Mode" per
-     * that table's own comment) -- the QMX manual's own "6 (FSK)", its real
-     * digital mode -- which, like index 2 (RIG_MODE_USB), is &lt;= 9 so
-     * kenwood_set_mode() encodes it as a literal digit ("MD6;"), not a letter.
-     *
-     * <p>Briefly swapped to "USB" (MD2;) during the same hardware session that
-     * found this, after the QMX's own display showed no S-meter response in
-     * Digi/FSK mode where it showed one in USB mode -- looked like FSK was
-     * disabling the receive chain FT8 needs. Turned out to be a false lead:
-     * the QMX simply doesn't draw an S-meter widget on its Digi-mode screen
-     * at all (confirmed by the operator switching modes at the radio's own
-     * front panel, independent of the app), not a no-signal indication. RX
-     * was separately confirmed decoding normally in both USB and Digi mode
-     * once reconnected with the app's actual bug fixed (see
-     * {@code RadioAudioSettings.kt}'s audio-input-picker reinitialize call) --
-     * mode was never the cause. Reverted to "RTTY" since Digi is the QMX's
-     * correct, intended mode for a digital mode like FT8.
+     * hamlib mode for FT8/FT4 on most rigs: DATA-USB, so audio routes through
+     * the data path rather than a mic/voice path.
      */
-    private static final String FT_MODE = "RTTY";
+    private static final String FT_MODE = "PKTUSB";
+
+    /**
+     * QMX override: hamlib's generic Kenwood mode table (rigs/kenwood/kenwood.c's
+     * kenwood_mode_table) encodes RIG_MODE_PKTUSB as table index 13, which
+     * kenwood_set_mode() turns into the ASCII letter 'D' -- "MDD;". The QMX's own
+     * CAT manual (cat_1_04_003.pdf) only accepts single-digit MD values
+     * (1,2,3,5,6,7,8,9) and silently rejects 'D', so PKTUSB never actually set the
+     * mode on this radio. "RTTY" is table index 6 (RIG_MODE_RTTY, &lt;= 9, encoded
+     * as a literal digit "MD6;"), the QMX manual's own "6 (FSK)" -- its real Digi
+     * mode. Applying this to every hamlib rig (not just the QMX) would send
+     * RIG_MODE_RTTY to rigs that expect PKTUSB, e.g. an FT-891 via newcat would
+     * get "MD06" (RTTY-LSB) instead of DATA-USB -- wrong mode and filter.
+     */
+    private static final String QMX_FT_MODE = "RTTY";
+
+    /** Which {@link #FT_MODE} string to send for a given hamlib model id. */
+    static String ftModeFor(int modelId) {
+        return modelId == QRPLABS_QMX_MODEL_ID ? QMX_FT_MODE : FT_MODE;
+    }
 
     private final int modelId;
+    private final NativeApi nativeApi;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile long handle = 0;
+    /**
+     * Guards {@link #handle} against the one genuine cross-thread race: a free
+     * ({@link #releaseHandle()}, on the single {@link #worker} thread) running
+     * concurrently with a feed ({@link #onReceiveData}, on the serial read
+     * thread) on the same native handle. {@code ensureOpen()}/{@code
+     * releaseHandle()} never race each other -- both only ever run via {@link
+     * #worker}, a single-thread executor -- so publishing a freshly opened
+     * handle needs no lock; only freeing it does.
+     */
+    private final ReentrantReadWriteLock bridgeLock = new ReentrantReadWriteLock();
     /**
      * Set once in {@link #onDisconnecting()}. After that the {@link #worker}
      * executor has been shut down, so any further {@code worker.submit(...)}
@@ -84,8 +93,53 @@ public class HamlibRig extends BaseRig {
     };
 
     public HamlibRig(int modelId) {
-        this.modelId = modelId;
+        this(modelId, REAL_NATIVE_API);
     }
+
+    /** Visible for tests: inject a fake native layer to drive races on the JVM. */
+    HamlibRig(int modelId, NativeApi nativeApi) {
+        this.modelId = modelId;
+        this.nativeApi = nativeApi;
+    }
+
+    /**
+     * Seam over {@link HamlibNative}'s static natives. {@code HamlibNative}
+     * can't be exercised from a JVM unit test (no {@code libft8af.so}, and
+     * {@link HamlibNative#isAvailable()} is hard-wired to {@code false} there),
+     * so real races like findings 3/4 (use-after-free on a failed open,
+     * double-free/leak on a disconnect that overlaps an open) were otherwise
+     * untestable outside real hardware. A fake implementation lets tests drive
+     * {@link #ensureOpen()}/{@link #releaseHandle()} directly.
+     */
+    interface NativeApi {
+        boolean isAvailable();
+        long nativeCreate(int modelId, HamlibNative.HamlibSink sink);
+        int nativeRigOpen(long handle);
+        void nativeFeedFromRig(long handle, byte[] data);
+        int nativeSetFreq(long handle, long hz);
+        long nativeGetFreq(long handle);
+        int nativeSetMode(long handle, String mode);
+        int nativeSetPtt(long handle, boolean on);
+        void nativeClose(long handle);
+    }
+
+    private static final NativeApi REAL_NATIVE_API = new NativeApi() {
+        @Override public boolean isAvailable() { return HamlibNative.isAvailable(); }
+        @Override public long nativeCreate(int modelId, HamlibNative.HamlibSink sink) {
+            return HamlibNative.nativeCreate(modelId, sink);
+        }
+        @Override public int nativeRigOpen(long handle) { return HamlibNative.nativeRigOpen(handle); }
+        @Override public void nativeFeedFromRig(long handle, byte[] data) {
+            HamlibNative.nativeFeedFromRig(handle, data);
+        }
+        @Override public int nativeSetFreq(long handle, long hz) { return HamlibNative.nativeSetFreq(handle, hz); }
+        @Override public long nativeGetFreq(long handle) { return HamlibNative.nativeGetFreq(handle); }
+        @Override public int nativeSetMode(long handle, String mode) {
+            return HamlibNative.nativeSetMode(handle, mode);
+        }
+        @Override public int nativeSetPtt(long handle, boolean on) { return HamlibNative.nativeSetPtt(handle, on); }
+        @Override public void nativeClose(long handle) { HamlibNative.nativeClose(handle); }
+    };
 
     /**
      * Open hamlib once the transport is connected. hamlib's {@code rig_open}
@@ -105,7 +159,7 @@ public class HamlibRig extends BaseRig {
             return true;
         }
         BaseRigConnector c = getConnector();
-        if (c == null || !c.isConnected() || !HamlibNative.isAvailable()) {
+        if (c == null || !c.isConnected() || !nativeApi.isAvailable()) {
             return false;
         }
         if (modelId <= 0) {
@@ -113,12 +167,12 @@ public class HamlibRig extends BaseRig {
             // observed on real hardware to abort the whole process (native
             // SIGABRT, "pthread_mutex_lock called on a destroyed mutex") a
             // fraction of a second later, not just fail gracefully. 0 means
-            // "not yet persisted" (see GeneralVariables.hamlibModelId) and must
-            // never reach native code.
+            // "not a hamlib entry" (see HamlibRig.modelIdFor) and must never
+            // reach native code.
             Log.w(TAG, "ensureOpen: refusing to open invalid hamlib model " + modelId);
             return false;
         }
-        long h = HamlibNative.nativeCreate(modelId, sink);
+        long h = nativeApi.nativeCreate(modelId, sink);
         if (h == 0) {
             Log.w(TAG, "nativeCreate failed for hamlib model " + modelId);
             return false;
@@ -133,16 +187,32 @@ public class HamlibRig extends BaseRig {
         // genuinely replying (serial.recv had real traffic) while hamlib's
         // own trace reported "0 chars" for that exact window, every time.
         handle = h;
-        int rc = HamlibNative.nativeRigOpen(h);
+        int rc = nativeApi.nativeRigOpen(h);
         if (rc != 0) {
             Log.w(TAG, "nativeRigOpen failed for hamlib model " + modelId + " rc=" + rc);
-            // nativeRigOpen already tore down and freed the bridge on failure.
-            handle = 0;
+            releaseHandle();
             return false;
         }
         Log.i(TAG, "hamlib model " + modelId + " opened");
         disableQmxIqModeIfApplicable(c);
         return true;
+    }
+
+    /**
+     * Unpublish and free the bridge. Runs on {@link #worker} (so it never
+     * overlaps an {@link #ensureOpen()} on the same handle — both only ever
+     * run there) under {@link #bridgeLock}'s write lock (so it never overlaps
+     * a feed in {@link #onReceiveData}, which takes the read lock).
+     */
+    private void releaseHandle() {
+        bridgeLock.writeLock().lock();
+        try {
+            long h = handle;
+            handle = 0;
+            if (h != 0) nativeApi.nativeClose(h);
+        } finally {
+            bridgeLock.writeLock().unlock();
+        }
     }
 
     /**
@@ -190,6 +260,24 @@ public class HamlibRig extends BaseRig {
     /** hamlib model ID for the QRP Labs QMX (0x809), per rigaddress.txt. */
     private static final int QRPLABS_QMX_MODEL_ID = 0x809;
 
+    /**
+     * hamlib model ID for the currently-selected rig entry, or 0 if it isn't a
+     * hamlib entry at all. Derives it fresh from {@code rigaddress.txt}'s
+     * address column rather than from a separately persisted config value: a
+     * prior {@code hamlibModel} config key was written for every rig pick
+     * (including non-hamlib ones, storing e.g. an ICOM CI-V address like 0x94
+     * there) and left stale by one picker path that never wrote it at all, so
+     * a leftover or stale value could silently win over the actually-selected
+     * entry after a restart and open the wrong hamlib backend.
+     *
+     * @param selected the picked rig entry (e.g. from
+     *                 {@code RigNameList.getRigNameByIndex}), or null
+     */
+    public static int modelIdFor(RigNameList.RigName selected) {
+        if (selected == null || selected.instructionSet != InstructionSet.HAMLIB) return 0;
+        return Math.max(selected.address, 0);
+    }
+
     @Override
     public boolean isConnected() {
         BaseRigConnector c = getConnector();
@@ -199,9 +287,17 @@ public class HamlibRig extends BaseRig {
     @Override
     public void onReceiveData(byte[] data) {
         // Called on the serial read thread — a quick, non-blocking socket write.
-        long h = handle;
-        if (h != 0) {
-            HamlibNative.nativeFeedFromRig(h, data);
+        // Read-locked against releaseHandle()'s write lock: without this, a feed
+        // here could run concurrently with the native free, using a handle whose
+        // bridge is mid-teardown (or already deleted) on the worker thread.
+        bridgeLock.readLock().lock();
+        try {
+            long h = handle;
+            if (h != 0) {
+                nativeApi.nativeFeedFromRig(h, data);
+            }
+        } finally {
+            bridgeLock.readLock().unlock();
         }
     }
 
@@ -243,8 +339,9 @@ public class HamlibRig extends BaseRig {
     public void setUsbModeToRig() {
         submitToWorker(() -> {
             if (!ensureOpen()) return;
-            int rc = HamlibNative.nativeSetMode(handle, FT_MODE);
-            if (rc != 0) Log.w(TAG, "set_mode(" + FT_MODE + ") rc=" + rc);
+            String mode = ftModeFor(modelId);
+            int rc = nativeApi.nativeSetMode(handle, mode);
+            if (rc != 0) Log.w(TAG, "set_mode(" + mode + ") rc=" + rc);
         });
     }
 
@@ -256,7 +353,7 @@ public class HamlibRig extends BaseRig {
         final long hz = getFreq();
         submitToWorker(() -> {
             if (!ensureOpen()) return;
-            int rc = HamlibNative.nativeSetFreq(handle, hz);
+            int rc = nativeApi.nativeSetFreq(handle, hz);
             if (rc != 0) Log.w(TAG, "set_freq(" + hz + ") rc=" + rc);
         });
     }
@@ -265,7 +362,7 @@ public class HamlibRig extends BaseRig {
     public void readFreqFromRig() {
         submitToWorker(() -> {
             if (!ensureOpen()) return;
-            long f = HamlibNative.nativeGetFreq(handle);
+            long f = nativeApi.nativeGetFreq(handle);
             if (f > 0) {
                 setFreq(f); // updates dial + fires CAT-liveness (BaseRig)
             }
@@ -277,7 +374,7 @@ public class HamlibRig extends BaseRig {
         super.setPTT(on); // notify listeners / meter state
         submitToWorker(() -> {
             if (!ensureOpen()) return;
-            int rc = HamlibNative.nativeSetPtt(handle, on);
+            int rc = nativeApi.nativeSetPtt(handle, on);
             if (rc != 0) Log.w(TAG, "set_ptt(" + on + ") rc=" + rc);
         });
     }
@@ -296,22 +393,22 @@ public class HamlibRig extends BaseRig {
         // shutdown — would throw RejectedExecutionException and crash the app.
         if (closed) return;
         closed = true;
-        final long h = handle;
-        handle = 0;
         try {
-            worker.submit(() -> {
-                if (h != 0) {
-                    HamlibNative.nativeClose(h);
-                }
-            });
+            // Read/clear/close handle via releaseHandle() on the SAME worker
+            // thread ensureOpen() runs on, queued behind it rather than racing
+            // it from this (caller) thread. The previous version read/cleared
+            // the volatile `handle` field directly here, concurrently with the
+            // worker possibly being mid-ensureOpen(): depending on timing that
+            // either leaked the bridge ensureOpen was about to publish (this
+            // close captures a stale value, e.g. 0, just before ensureOpen
+            // overwrites it) or closed a handle a subsequent ensureOpen() had
+            // already reused after wrongly seeing a momentarily-zeroed `handle`
+            // as "not yet open" and recreating it.
+            worker.submit(this::releaseHandle);
         } catch (RejectedExecutionException e) {
-            // Worker already terminated, so it can't run the close for us. The
-            // handle is still reachable via the local h — close it inline rather
-            // than leaking the native rig/pump resources.
+            // Worker already terminated, so it can't run the release for us.
             Log.w(TAG, "worker rejected close task; closing handle inline");
-            if (h != 0) {
-                HamlibNative.nativeClose(h);
-            }
+            releaseHandle();
         }
         worker.shutdown();
     }

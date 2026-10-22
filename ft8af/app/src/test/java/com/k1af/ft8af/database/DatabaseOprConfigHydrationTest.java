@@ -57,7 +57,6 @@ public class DatabaseOprConfigHydrationTest {
     private boolean origDeepDecodeMode;
     private boolean origKeepScreenOn;
     private boolean origAutoSyncClockFromDecodes;
-    private int origHamlibModelId;
 
     @Before
     public void setUp() {
@@ -78,7 +77,6 @@ public class DatabaseOprConfigHydrationTest {
         origDeepDecodeMode = GeneralVariables.deepDecodeMode;
         origKeepScreenOn = GeneralVariables.keepScreenOn;
         origAutoSyncClockFromDecodes = GeneralVariables.autoSyncClockFromDecodes;
-        origHamlibModelId = GeneralVariables.hamlibModelId;
 
         opr = new DatabaseOpr(ApplicationProvider.getApplicationContext(), null, null, 18);
     }
@@ -105,7 +103,6 @@ public class DatabaseOprConfigHydrationTest {
             GeneralVariables.deepDecodeMode = origDeepDecodeMode;
             GeneralVariables.keepScreenOn = origKeepScreenOn;
             GeneralVariables.autoSyncClockFromDecodes = origAutoSyncClockFromDecodes;
-            GeneralVariables.hamlibModelId = origHamlibModelId;
         }
     }
 
@@ -458,37 +455,5 @@ public class DatabaseOprConfigHydrationTest {
         hydrate();
 
         assertThat(GeneralVariables.civAddressFormatKnown).isFalse();
-    }
-
-    /**
-     * Real-hardware testing on PR #925 found that persisting a hamlib model ID (e.g. the
-     * QMX's 2057) through {@code civ} silently truncated it to 9 on the next app launch
-     * ({@code CivAddressConfig.encode()} masks with {@code & 0xFF}, since a real CI-V
-     * address is always a byte) -- opening an unrelated hamlib backend (model 9) instead of
-     * the QMX. {@code hamlibModel} is a separate, plain-decimal, unmasked key specifically
-     * so values over a byte round-trip correctly.
-     */
-    @Test
-    public void hamlibModelId_hydratesFullValue_unlikeByteMaskedCiv() {
-        GeneralVariables.hamlibModelId = 0;
-        Map<String, String> config = new LinkedHashMap<>();
-        config.put("hamlibModel", "2057"); // QRP Labs QMX
-        opr.writeConfigSync(config);
-
-        hydrate();
-
-        assertThat(GeneralVariables.hamlibModelId).isEqualTo(2057);
-    }
-
-    @Test
-    public void hamlibModelId_malformedValue_fallsBackToZero() {
-        GeneralVariables.hamlibModelId = 2057;
-        Map<String, String> config = new LinkedHashMap<>();
-        config.put("hamlibModel", "not-a-number");
-        opr.writeConfigSync(config);
-
-        hydrate(); // must not throw
-
-        assertThat(GeneralVariables.hamlibModelId).isEqualTo(0);
     }
 }
