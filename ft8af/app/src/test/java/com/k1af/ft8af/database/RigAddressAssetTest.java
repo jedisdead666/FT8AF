@@ -15,7 +15,8 @@ import java.util.ArrayList;
  * exercises getRigNamesFromFile / getRigNameByIndex / getIndexByAddress,
  * which {@link RigNameListTest} can't reach without a Context).
  *
- * <p>Two invariants matter here beyond the IC-7300MK2 entry itself:
+ * <p>Per-rig checks pin the profiles of recently added entries (IC-7300MK2,
+ * FTX-1). Two invariants matter beyond those:
  * <ul>
  *   <li><b>New rigs must be appended, existing lines must not move</b>: the
  *       selected model is persisted as a raw index into this list
@@ -24,7 +25,7 @@ import java.util.ArrayList;
  *       selected rig on upgrade. {@link #rigList_matchesGoldenIndexOrder} pins
  *       every entry to its index; when you add a rig, append it to both the
  *       asset file and the end of {@code GOLDEN_ORDER}.</li>
- *   <li>Its CI-V address (0xB6) is unique in the list, so
+ *   <li>The IC-7300MK2's CI-V address (0xB6) is unique in the list, so
  *       {@link RigNameList#getIndexByAddress(int)} maps it unambiguously.</li>
  * </ul>
  */
@@ -159,11 +160,13 @@ public class RigAddressAssetTest {
     }
 
     @Test
-    public void ftx1_isTheLastEntry() {
-        // New rigs are append-only (class javadoc); FTX-1 closed the list.
+    public void lastEntry_isTheLastGoldenName() {
+        // New rigs are append-only (class javadoc): the loaded list must end
+        // with the newest GOLDEN_ORDER entry. Pinned to the array rather than a
+        // model name so appending a rig doesn't mean rewriting this test.
         RigNameList list = load();
         assertThat(list.rigList.get(list.rigList.size() - 1).modelName)
-                .isEqualTo("YAESU FTX-1(USB)");
+                .isEqualTo(GOLDEN_ORDER[GOLDEN_ORDER.length - 1]);
     }
 
     @Test
