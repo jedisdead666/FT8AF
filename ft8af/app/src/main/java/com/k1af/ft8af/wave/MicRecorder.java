@@ -371,7 +371,9 @@ public class MicRecorder {
     }
 
     /**
-     * Find AudioDeviceInfo by device ID
+     * Find AudioDeviceInfo by device ID. Falls back to matching by the
+     * persisted input VID:PID (via its current product name) when the exact
+     * id isn't found -- see {@link UsbAudioDevice#resolveDeviceIndex}.
      */
     private AudioDeviceInfo findAudioDeviceById(int deviceId, int deviceType) {
         Context context = GeneralVariables.getMainContext();
@@ -379,12 +381,20 @@ public class MicRecorder {
         AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         if (audioManager == null) return null;
         AudioDeviceInfo[] devices = audioManager.getDevices(deviceType);
-        for (AudioDeviceInfo device : devices) {
-            if (device.getId() == deviceId) {
-                return device;
-            }
+        int[] ids = new int[devices.length];
+        String[] names = new String[devices.length];
+        for (int i = 0; i < devices.length; i++) {
+            ids[i] = devices[i].getId();
+            CharSequence name = devices[i].getProductName();
+            names[i] = name == null ? null : name.toString();
         }
-        return null;
+        UsbDevice fallback = GeneralVariables.usbAudioInputVendorId == 0 ? null
+                : UsbAudioDevice.findDeviceByVidPid(context,
+                        GeneralVariables.usbAudioInputVendorId,
+                        GeneralVariables.usbAudioInputProductId);
+        int idx = UsbAudioDevice.resolveDeviceIndex(ids, names, deviceId,
+                fallback == null ? null : fallback.getProductName());
+        return idx < 0 ? null : devices[idx];
     }
 
     /**
