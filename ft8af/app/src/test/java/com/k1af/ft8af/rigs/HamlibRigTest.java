@@ -2,9 +2,13 @@ package com.k1af.ft8af.rigs;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.k1af.ft8af.connector.BaseRigConnector;
+
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.Test;
 
@@ -107,5 +111,36 @@ public class HamlibRigTest {
 
         // The execution-time re-check dropped B's body after disconnect.
         assertThat(bBodyRan.get()).isFalse();
+    }
+
+    /** Captures the last byte[] written, standing in for the real serial link. */
+    private static BaseRigConnector recordingConnector(AtomicReference<byte[]> sent) {
+        return new BaseRigConnector() {
+            @Override
+            public synchronized void sendData(byte[] data) {
+                sent.set(data);
+            }
+        };
+    }
+
+    @Test
+    public void disableQmxIqModeIfApplicable_sendsQ90_forQmxModelId() {
+        // 0x809 = RIG_MAKE_MODEL(RIG_KENWOOD, 57), hamlib's real QMX model ID
+        // (see rigaddress.txt's "Qrp Labs QMX (Hamlib),809,...") -- the only
+        // model this vendor-specific fixup should ever fire for.
+        HamlibRig rig = new HamlibRig(0x809);
+        AtomicReference<byte[]> sent = new AtomicReference<>();
+        rig.disableQmxIqModeIfApplicable(recordingConnector(sent));
+        assertThat(new String(sent.get(), StandardCharsets.US_ASCII)).isEqualTo("Q90;");
+    }
+
+    @Test
+    public void disableQmxIqModeIfApplicable_isNoOp_forOtherModelIds() {
+        // Only the QMX uses this vendor "Q" command; sending it to an unrelated
+        // hamlib model (e.g. 1036 = FT-891) would be a meaningless raw write.
+        HamlibRig rig = new HamlibRig(1036);
+        AtomicReference<byte[]> sent = new AtomicReference<>();
+        rig.disableQmxIqModeIfApplicable(recordingConnector(sent));
+        assertThat(sent.get()).isNull();
     }
 }
