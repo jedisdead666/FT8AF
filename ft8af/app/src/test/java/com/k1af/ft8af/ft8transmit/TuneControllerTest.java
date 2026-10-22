@@ -145,7 +145,7 @@ public class TuneControllerTest {
     @Test
     public void swrHalt_notSuppressedBeforeAnyTune() {
         TuneController c = new TuneController(new FakeClock());
-        assertThat(c.suppressesSwrHalt()).isFalse();
+        assertThat(c.suppressesSwrHalt(false)).isFalse();
     }
 
     @Test
@@ -156,12 +156,12 @@ public class TuneControllerTest {
         TuneController c = new TuneController(clock);
         c.tryStart(10);
         c.markKeyed();
-        assertThat(c.suppressesSwrHalt()).isTrue();
+        assertThat(c.suppressesSwrHalt(false)).isTrue();
 
         c.requestStop(TuneController.STOP_USER);
         assertThat(c.isActive()).isFalse();
-        clock.now += 5_000; // a slow key-up must not open a gap
-        assertThat(c.suppressesSwrHalt()).isTrue();
+        clock.now += TuneController.KEYUP_TAIL_MAX_MS - 1; // a slow key-up must not open a gap
+        assertThat(c.suppressesSwrHalt(false)).isTrue();
     }
 
     @Test
@@ -174,10 +174,10 @@ public class TuneControllerTest {
         c.markUnkeyed();
 
         clock.now += TuneController.SWR_SETTLE_MS - 1;
-        assertThat(c.suppressesSwrHalt()).isTrue();
+        assertThat(c.suppressesSwrHalt(false)).isTrue();
 
         clock.now += 1; // window over: an FT8 over's high SWR halts again
-        assertThat(c.suppressesSwrHalt()).isFalse();
+        assertThat(c.suppressesSwrHalt(false)).isFalse();
     }
 
     @Test
@@ -188,6 +188,86 @@ public class TuneControllerTest {
         c.markKeyed();
         clock.now += 10_000;
         assertThat(c.shouldContinue()).isFalse(); // timeout fired
-        assertThat(c.suppressesSwrHalt()).isTrue();
+        assertThat(c.suppressesSwrHalt(false)).isTrue();
+    }
+
+    @Test
+    public void swrHalt_stuckKeyUpLapsesAfterTheTailCap() {
+        // A teardown hung on a dead CAT link must not leave protection off.
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.tryStart(10);
+        c.markKeyed();
+        c.requestStop(TuneController.STOP_USER);
+        clock.now += TuneController.KEYUP_TAIL_MAX_MS;
+        assertThat(c.suppressesSwrHalt(false)).isFalse();
+    }
+
+    @Test
+    public void swrHalt_neverSuppressedWhileAnFt8OverIsInProgress() {
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.tryStart(10);
+        c.markKeyed();
+        assertThat(c.suppressesSwrHalt(true)).isFalse();
+        c.requestStop(TuneController.STOP_TX);
+        c.markUnkeyed();
+        assertThat(c.suppressesSwrHalt(true)).isFalse();
+    }
+
+    @Test
+    public void swrHalt_revokedByAnFt8KeyDownDuringTheTail() {
+        // An FT8 over that preempts a tune keys while the tune is still ramping
+        // out; its readings must halt, and no settle window may follow.
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.tryStart(10);
+        c.markKeyed();
+        c.requestStop(TuneController.STOP_TX);
+        c.revokeSwrExemption();
+        assertThat(c.suppressesSwrHalt(false)).isFalse();
+        c.markUnkeyed();
+        assertThat(c.suppressesSwrHalt(false)).isFalse();
+    }
+
+    @Test
+    public void swrHalt_revocationClearedByTheNextTune() {
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.revokeSwrExemption();
+        assertThat(c.tryStart(10)).isTrue();
+        c.markKeyed();
+        assertThat(c.suppressesSwrHalt(false)).isTrue();
+    }
+
+    @Test
+    public void swrHalt_oldWorkerKeyUpDoesNotEndANewTunesTail() {
+        // Stop then Tune again quickly: worker B keys while worker A is still in
+        // its teardown. A's key-up must not end B's exemption.
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.tryStart(10);
+        c.markKeyed(); // A
+        c.requestStop(TuneController.STOP_USER);
+        assertThat(c.tryStart(10)).isTrue();
+        c.markKeyed(); // B
+        c.markUnkeyed(); // A finishes
+        c.requestStop(TuneController.STOP_USER); // B stopped, still ramping out
+        clock.now += TuneController.SWR_SETTLE_MS + 1;
+        assertThat(c.suppressesSwrHalt(false)).isTrue();
+
+        c.markUnkeyed(); // B finishes: its own settle window starts now
+        clock.now += TuneController.SWR_SETTLE_MS - 1;
+        assertThat(c.suppressesSwrHalt(false)).isTrue();
+        clock.now += 1;
+        assertThat(c.suppressesSwrHalt(false)).isFalse();
+    }
+
+    @Test
+    public void swrHalt_unmatchedKeyUpOpensNoWindow() {
+        FakeClock clock = new FakeClock();
+        TuneController c = new TuneController(clock);
+        c.markUnkeyed();
+        assertThat(c.suppressesSwrHalt(false)).isFalse();
     }
 }

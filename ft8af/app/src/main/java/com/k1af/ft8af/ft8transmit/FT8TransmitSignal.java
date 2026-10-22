@@ -13,6 +13,7 @@ import android.hardware.usb.UsbManager;
 import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
 import android.os.Build;
+import android.os.SystemClock;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
@@ -191,7 +192,9 @@ public class FT8TransmitSignal {
     // Tune carrier (issue #408): lifecycle/safety state machine + UI state.
     // The controller enforces the hard max-on timeout and single-flight; the
     // worker thread owns keying + AudioTrack teardown in a finally.
-    private final TuneController tuneController = new TuneController(System::currentTimeMillis);
+    // Monotonic: the max-on timeout and the SWR settle window are intervals, and a
+    // wall-clock step (NTP, self-sync) must not stretch or shrink them (#943).
+    private final TuneController tuneController = new TuneController(SystemClock::elapsedRealtime);
     public final MutableLiveData<Boolean> mutableIsTuning = new MutableLiveData<>();
     public final MutableLiveData<Integer> mutableTuneRemainingSec = new MutableLiveData<>();
 
@@ -3178,10 +3181,11 @@ public class FT8TransmitSignal {
     /**
      * Whether SWR readings should be attributed to the tune carrier. Wider than
      * {@link #isTuning()}: also covers the ramp-out/key-up tail and a short settle
-     * window after PTT drops (issue #943). See {@link TuneController#suppressesSwrHalt()}.
+     * window after PTT drops (issue #943). Never true during an FT8 over. See
+     * {@link TuneController#suppressesSwrHalt(boolean)}.
      */
     public boolean isTuneSwrExempt() {
-        return tuneController.suppressesSwrHalt();
+        return tuneController.suppressesSwrHalt(isTransmitting);
     }
 
     /** Milliseconds until the tune safety timeout fires; 0 when not tuning. */
@@ -3490,6 +3494,9 @@ public class FT8TransmitSignal {
             // for displaying the message content to be transmitted
             Ft8Message msg = transmitSignal.currentTransmitMessage();
 
+            // A real over is about to key: any SWR reading from here on is its own,
+            // so a just-ended tune's tail/settle window must not exempt it (#943).
+            transmitSignal.tuneController.revokeSwrExemption();
             if (transmitSignal.onDoTransmitted != null) {
                 // handle PTT and other events here
                 transmitSignal.onDoTransmitted.onBeforeTransmit(msg, transmitSignal.functionOrder);
