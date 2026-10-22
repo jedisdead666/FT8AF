@@ -97,8 +97,10 @@ public class AdifStreamReaderTest {
     public void multiByteUtf8CharacterSplitAcrossChunkBoundary_decodesCorrectly() throws IOException {
         // "Café" has a 2-byte UTF-8 character ('é'); chunkChars=1 means InputStreamReader's
         // internal byte-to-char decoding (not this class's own buffering) must be relied on
-        // to never split that character's bytes across two returned chars.
-        String adif = "<eoh><call:5>K1ABC<comment:4>Café<eor>";
+        // to never split that character's bytes across two returned chars. Declared length
+        // is 5 (UTF-8 BYTES: C+a+f+é(2)+-- see AdifFormat#utf8Length/sliceByUtf8Length),
+        // not the 4-char string length.
+        String adif = "<eoh><call:5>K1ABC<comment:5>Café<eor>";
         try (AdifStreamReader reader = new AdifStreamReader(utf8(adif), 1)) {
             HashMap<String, String> record = reader.nextRecord();
             assertThat(record).containsEntry("COMMENT", "Café");
