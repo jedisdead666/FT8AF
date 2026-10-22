@@ -818,9 +818,16 @@ public class MicRecorder {
                 AudioDeviceInfo deviceInfo = findAudioDeviceById(
                         GeneralVariables.audioInputDeviceId, AudioManager.GET_DEVICES_INPUTS);
                 boolean ok = audioRecord.setPreferredDevice(deviceInfo);
+                // Logs the REQUESTED id (what was persisted) and the RESOLVED one
+                // separately: findAudioDeviceById() can fall back to a different,
+                // currently-live id via UsbAudioDevice.resolveDeviceIndex's product-name
+                // match when the requested one went stale across a USB re-enumeration --
+                // confirmed on real hardware (a QMX power-cycle), where logging only the
+                // requested id made a successful fallback look identical to an exact hit.
                 GeneralVariables.fileLog(String.format(
-                        "MicRecorder: reinit preferredDevice id=%d ok=%b deviceFound=%b",
-                        GeneralVariables.audioInputDeviceId, ok, deviceInfo != null));
+                        "MicRecorder: reinit preferredDevice requestedId=%d resolvedId=%d ok=%b deviceFound=%b",
+                        GeneralVariables.audioInputDeviceId,
+                        deviceInfo == null ? -1 : deviceInfo.getId(), ok, deviceInfo != null));
             }
         }
 
