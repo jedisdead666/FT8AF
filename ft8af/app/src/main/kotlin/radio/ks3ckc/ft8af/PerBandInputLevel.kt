@@ -85,3 +85,26 @@ fun restoredInputLevelForBand(band: String?): Int? = resolvePerBandOutputLevel(
     inputLevelFromGainPercent(GeneralVariables.inputGainPercent),
     PER_BAND_INPUT_LEVEL_MAX,
 )
+
+/**
+ * Band-change restore: when [band] has a saved input volume that differs from
+ * the current one, apply it to the live RX gain (used on the next audio
+ * buffer), hand it to [persist] (the "inputVolume" config write) and return it
+ * for the caller's toast. Returns null and changes nothing otherwise.
+ */
+internal fun applyRestoredInputLevelForBand(band: String?, persist: (Int) -> Unit): Int? {
+    val level = restoredInputLevelForBand(band) ?: return null
+    GeneralVariables.inputGainPercent = level / 100f
+    persist(level)
+    return level
+}
+
+/**
+ * Whether closing the Input Volume dialog should record the level for the
+ * current band. Only when the operator actually moved it: a band change the
+ * rig makes on its own (VFO knob, band button) doesn't restore the per-band
+ * level, so saving an untouched dialog would overwrite the new band's saved
+ * value with the previous band's gain.
+ */
+internal fun inputLevelChangedInDialog(levelAtOpen: Int, levelAtDismiss: Int): Boolean =
+    levelAtOpen != levelAtDismiss

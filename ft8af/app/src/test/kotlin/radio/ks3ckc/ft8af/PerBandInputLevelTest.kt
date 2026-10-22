@@ -151,4 +151,40 @@ class PerBandInputLevelTest {
         GeneralVariables.savePerBandInputLevel = false
         assertThat(restoredInputLevelForBand("20m")).isNull()
     }
+
+    // ---- applyRestoredInputLevelForBand (band-change restore) ----
+
+    @Test
+    fun applyRestore_setsGainAsFractionAndPersistsPercent() {
+        GeneralVariables.savePerBandInputLevel = true
+        GeneralVariables.perBandInputLevels = "20m=100,10m=160"
+        GeneralVariables.inputGainPercent = 1.0f
+        var persisted: Int? = null
+        val applied = applyRestoredInputLevelForBand("10m") { persisted = it }
+        assertThat(applied).isEqualTo(160)
+        assertThat(persisted).isEqualTo(160)
+        assertThat(GeneralVariables.inputGainPercent).isWithin(1e-6f).of(1.6f)
+    }
+
+    @Test
+    fun applyRestore_nothingToRestore_leavesGainAndDoesNotPersist() {
+        GeneralVariables.savePerBandInputLevel = true
+        GeneralVariables.perBandInputLevels = "20m=100"
+        GeneralVariables.inputGainPercent = 1.3f
+        var persistCalls = 0
+        assertThat(applyRestoredInputLevelForBand("40m") { persistCalls++ }).isNull()
+        GeneralVariables.savePerBandInputLevel = false
+        assertThat(applyRestoredInputLevelForBand("20m") { persistCalls++ }).isNull()
+        assertThat(persistCalls).isEqualTo(0)
+        assertThat(GeneralVariables.inputGainPercent).isEqualTo(1.3f)
+    }
+
+    // ---- inputLevelChangedInDialog ----
+
+    @Test
+    fun dialogDismiss_savesOnlyWhenTheLevelMoved() {
+        assertThat(inputLevelChangedInDialog(100, 100)).isFalse()
+        assertThat(inputLevelChangedInDialog(100, 160)).isTrue()
+        assertThat(inputLevelChangedInDialog(160, 0)).isTrue()
+    }
 }
