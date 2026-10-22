@@ -156,14 +156,46 @@ QFT8's own connect sequence sets it, that would independently explain
 silence-despite-healthy-capture too. The two leads aren't mutually
 exclusive and both need a real logcat-instrumented test to settle.
 
-**Not yet attempted**: comparing exactly what Android USB APIs/permission
-calls QFT8 makes vs. FT8AF's `CdcAcmSerialDriver`/`UsbAudioDevice` (QFT8's
-author has declined to share source, so this has to be black-box
-experimentation — e.g. instrumenting exactly when/how FT8AF calls
-`UsbManager.openDevice()`/`requestPermission()` relative to when audio
-stops, and trying "Always" vs "Just once" in the chooser to see if that
-changes anything), and sending a raw `AG` CAT command on connect as a
-cheap, independent test of the AF-gain theory.
+### The real fix (found, pushed, awaiting a clean build/test): I/Q mode left on
+
+Checking a related project turned the investigation around. Dan Lee's
+separate `danleetw/FT8TW` app hit what reads as the identical symptom on
+the QMX family: GitHub issue **danleetw/FT8TW#78** ("For QMX/QMX+ set I/Q
+mode off"), closed as fixed —
+
+> If I/Q mode is left on, it appears that FT8TW is working, but the
+> received audio is like noise. CAT command: Q90;
+
+This matches the QMX's own CAT manual precisely: `Q9` (IQ Mode) streams
+**raw I/Q ADC samples** to the USB sound card instead of demodulated audio
+when enabled — a decoder expecting normal AF audio gets garbage/silence,
+while the USB capture pipeline itself stays completely healthy, exactly the
+symptom chased all night through mode, device-selection, and capture-
+lifecycle bugs. It's session-only (not written to EEPROM per the manual),
+which fits the whole night's pattern: if this unit's I/Q mode was left on
+via its own front-panel menu from earlier SDR use, it would default back on
+every power-cycle, and only an app that explicitly disables it on connect
+would ever decode again. FT8AF has never sent this command on any code
+path.
+
+A direct side-by-side test on this exact phone+radio confirmed it: FT8TW
+(which already carries Dan's fix) decoded normally; FT8AF, run immediately
+after under the same radio state, did not. (One earlier FT8TW attempt in
+this same session looked like a counter-example — silent right after the
+app was granted the device — but did not reproduce on a second try, which
+decoded fine; the live-signal/power-cycle environment made single data
+points noisy all night, which is part of why this took so long to pin
+down.)
+
+**Fixed and pushed** (`12815ecb`): `HamlibRig` now sends `"Q90;"` directly
+over the connector once per successful open — hamlib has no generic API for
+this QMX vendor-specific extended command, so it bypasses hamlib the same
+way the (correctly reverted) `Q41;` experiment did, but for a real,
+externally-validated command this time. Covered by a new unit test
+(`HamlibRigTest`) for the model-id gate and the exact bytes sent; the actual
+real-hardware confirmation is still pending a clean build/test cycle on the
+Windows laptop (offline at the moment this was written — message is queued
+for when it reconnects).
 
 ## Known issue, not yet root-caused (TX, from 2026-10-21, not re-tested)
 
