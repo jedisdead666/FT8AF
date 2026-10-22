@@ -814,15 +814,24 @@ public class MicRecorder {
             }
         }
 
-        // Restore listener and restart if the owner still wants capture
-        // running -- shouldBeRunning, NOT isRunning: a transient failure in
-        // the rebuild above (or an earlier reinitialize() call) may already
-        // have left isRunning false with no owner-driven stopRecord() ever
-        // happening, and that must not be read as "capture no longer wanted".
         onDataListener = savedListener;
-        if (shouldBeRunning) {
+        if (shouldRestartAfterReinitialize(shouldBeRunning)) {
             start();
         }
+    }
+
+    /**
+     * Whether {@link #reinitialize()} should restart capture once it has
+     * rebuilt the audio input. Keyed on {@code shouldBeRunning} (owner
+     * intent, touched only by {@link #start()}/{@link #stopRecord()}), NOT
+     * {@code isRunning} -- a transient failure in the rebuild above (or an
+     * earlier {@link #reinitialize()} call) can leave {@code isRunning} false
+     * with no owner-driven {@link #stopRecord()} ever happening, and that
+     * must not be read as "capture no longer wanted" (the bug fixed by
+     * introducing {@link #shouldBeRunning} in the first place).
+     */
+    static boolean shouldRestartAfterReinitialize(boolean shouldBeRunning) {
+        return shouldBeRunning;
     }
 
     /**
