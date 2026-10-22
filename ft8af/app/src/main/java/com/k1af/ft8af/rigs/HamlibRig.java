@@ -36,28 +36,25 @@ public class HamlibRig extends BaseRig {
      * manual (qrp-labs.com/images/qmx/manuals/cat_1_04_003.pdf) only accepts
      * single-digit MD values (1,2,3,5,6,7,8,9); 'D' is not one of them and is
      * silently rejected, so the radio's mode was never actually being set at
-     * all via this path.
+     * all via this path. Table index 6 holds RIG_MODE_RTTY ("FSK Mode" per
+     * that table's own comment) -- the QMX manual's own "6 (FSK)", its real
+     * digital mode -- which, like index 2 (RIG_MODE_USB), is &lt;= 9 so
+     * kenwood_set_mode() encodes it as a literal digit ("MD6;"), not a letter.
      *
-     * <p>NOT "RTTY" either, despite also producing a valid command (table
-     * index 6 = RIG_MODE_RTTY -&gt; "MD6;", the QMX manual's own "6 (FSK)").
-     * hamlib's RTTY mode is the radio's literal hardware FSK demodulator --
-     * the dedicated RTTY-keying path Kenwood-style rigs use, which bypasses
-     * the normal SSB receive chain FT8's audio tones need. Confirmed on real
-     * hardware: the QMX's own S-meter stayed active on real RF in USB mode
-     * and went completely dead in FSK (MD6) mode -- CAT accepted the command
-     * and the app reported "Digital" mode throughout, but the radio's receive
-     * audio path was never actually listening the way FT8 (an audio-tone
-     * mode, not true FSK) needs.
-     *
-     * <p>Table index 2 holds RIG_MODE_USB -- the QMX manual's own "2 (USB)" --
-     * and FT8/FT4 are audio-tone modes transmitted/received over a plain USB
-     * passband, exactly like voice SSB; they need no special radio-side mode
-     * at all, matching the QDX's own field-confirmed behavior elsewhere in
-     * this project ("CAT does work getting decodes in usb mode"). "USB"
-     * produces the valid "MD2;" and, unlike PKTUSB/RTTY, is index &lt;= 9 so
-     * kenwood_set_mode() encodes it as a literal digit, not a letter.
+     * <p>Briefly swapped to "USB" (MD2;) during the same hardware session that
+     * found this, after the QMX's own display showed no S-meter response in
+     * Digi/FSK mode where it showed one in USB mode -- looked like FSK was
+     * disabling the receive chain FT8 needs. Turned out to be a false lead:
+     * the QMX simply doesn't draw an S-meter widget on its Digi-mode screen
+     * at all (confirmed by the operator switching modes at the radio's own
+     * front panel, independent of the app), not a no-signal indication. RX
+     * was separately confirmed decoding normally in both USB and Digi mode
+     * once reconnected with the app's actual bug fixed (see
+     * {@code RadioAudioSettings.kt}'s audio-input-picker reinitialize call) --
+     * mode was never the cause. Reverted to "RTTY" since Digi is the QMX's
+     * correct, intended mode for a digital mode like FT8.
      */
-    private static final String FT_MODE = "USB";
+    private static final String FT_MODE = "RTTY";
 
     private final int modelId;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
