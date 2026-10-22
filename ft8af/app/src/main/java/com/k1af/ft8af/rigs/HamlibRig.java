@@ -82,13 +82,6 @@ public class HamlibRig extends BaseRig {
         BaseRigConnector c = getConnector();
         if (c != null) {
             c.sendData(data);
-        } else {
-            // DIAGNOSTIC (temporary): hamlib's CAT bytes are silently dropped
-            // here with no trace anywhere else in the app or native logs when
-            // the connector is null — suspected cause of commands beyond the
-            // initial rig_open() handshake (e.g. FA;) never reaching the radio.
-            Log.w(TAG, "sink.onBytesToRig: dropping " + data.length
-                    + " byte(s), getConnector() is null");
         }
     };
 
@@ -219,39 +212,19 @@ public class HamlibRig extends BaseRig {
      * QRP Labs QMX-specific fixup, sent once right after a successful open:
      * force I/Q mode off ({@code "Q90;"}). hamlib has no generic API for this
      * -- it's one of the QMX's vendor "Q" extended commands
-     * (qrp-labs.com/images/qmx/manuals/cat_1_04_003.pdf), not a standard
-     * rig_set_level/rig_set_mode -- so this bypasses hamlib and writes the
-     * connector directly, the same mechanism {@link #sink} itself uses for
-     * hamlib's own bytes.
+     * (qrp-labs.com/images/qmx/manuals/cat_1_04_003.pdf) -- so this bypasses
+     * hamlib and writes the connector directly, the same mechanism
+     * {@link #sink} uses for hamlib's own bytes. Left on (e.g. from prior SDR
+     * use via the radio's own front-panel menu), I/Q mode streams raw ADC
+     * samples instead of demodulated audio, which a decoder sees as noise;
+     * the setting is session-only, so it silently returns on every power-
+     * cycle. Matches danleetw/FT8TW#78, fixed there with the same command.
      *
-     * <p>Real-hardware root cause (2026-10-22): I/Q mode streams raw ADC
-     * samples to the USB sound card instead of demodulated audio (per the
-     * manual's own Q9 description) -- a decoder expecting normal audio sees
-     * what looks like noise/silence, while the USB capture pipeline itself
-     * stays completely healthy (confirmed via Android's own audio HAL: real
-     * continuous reads, zero errors, correct device, correct CAT), which is
-     * exactly the symptom chased fruitlessly through mode, audio-device
-     * selection, and capture-lifecycle bugs all night. The setting is
-     * session-only (not written to EEPROM) per the manual, which fits
-     * everything observed: if I/Q mode was left on via the QMX's own front-
-     * panel menu from unrelated SDR use on this unit, it would default back
-     * on every power-cycle, and only an app that explicitly sends "Q90;" on
-     * connect would ever decode again -- matching danleetw/FT8TW issue #78
-     * ("For QMX/QMX+ set I/Q mode off... appears to be working, but the
-     * received audio is like noise"), closed by that project as fixed with
-     * the identical command.
-     *
-     * <p>A first live A/B on this same hardware, same session, briefly looked
-     * like a counter-example (FT8TW silent too, right after being granted the
-     * device) but did not reproduce on a second try -- FT8TW decoded
-     * normally after the device hand-off that time, the one difference
-     * between the two apps being exactly this fix. See
-     * docs/qmx-hamlib-status.md for the full real-hardware trail.
+     * <p>Package-private: visible for {@code disableQmxIqModeIfApplicable_*} tests.
      *
      * @param c the connector to write to; never null when called from
      *          {@link #ensureOpen()} (already checked non-null/connected)
      */
-    /** Package-private: visible for {@code disableQmxIqModeIfApplicable_*} tests. */
     void disableQmxIqModeIfApplicable(BaseRigConnector c) {
         if (modelId != QRPLABS_QMX_MODEL_ID) return;
         c.sendData("Q90;".getBytes(java.nio.charset.StandardCharsets.US_ASCII));

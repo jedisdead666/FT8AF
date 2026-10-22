@@ -37,21 +37,11 @@ public class MicRecorder {
     // createAudioRecord(). Volatile because reinitialize() writes it from
     // another thread than the reader loop that snapshots it.
     private volatile int captureChannelCount = 1;
-    // NOT ENCODING_PCM_FLOAT: confirmed on real hardware (2026-10-22, QMX
-    // over USB Audio Class, MediaTek audio HAL) that requesting float capture
-    // from a USB input silently produces unusable (effectively silent)
-    // samples on this HAL -- AudioALSAStreamIn's own log line, "wrong
-    // format(0x5), default use wordSize = 2", shows it falling back to a
-    // 16-bit word size internally while still being asked for 4-byte floats.
-    // Reproduced twice in two single app processes with everything else held
-    // constant (same CAT mode, same device, same session): the HAL
-    // occasionally renegotiates to 16-bit PCM across a USB re-enumeration,
-    // and decoding started working immediately every time that happened,
-    // then stopped immediately on the next reinit back to float -- this is
-    // what the whole night's RX investigation was actually chasing, not
-    // mode or device selection. Capture PCM16 instead and convert to float
-    // in the reader loop below (see startAudioRecordCapture()), matching
-    // what already reliably decodes on this hardware.
+    // NOT ENCODING_PCM_FLOAT: on this phone's MediaTek USB audio HAL,
+    // requesting float capture from a USB input silently produces unusable
+    // samples (the HAL's own log shows it falling back to a 16-bit word size
+    // internally while still being asked for 4-byte floats). Capture PCM16
+    // and convert to float in software instead (see startAudioRecordCapture()).
     private static final int audioFormat = AudioFormat.ENCODING_PCM_16BIT; //quantization bit depth
 
     private AudioRecord audioRecord = null;//AudioRecord object
