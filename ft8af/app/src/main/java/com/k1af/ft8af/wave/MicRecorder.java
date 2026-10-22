@@ -37,8 +37,22 @@ public class MicRecorder {
     // createAudioRecord(). Volatile because reinitialize() writes it from
     // another thread than the reader loop that snapshots it.
     private volatile int captureChannelCount = 1;
-    //private static final int audioFormat = AudioFormat.ENCODING_PCM_16BIT; //quantization bit depth
-    private static final int audioFormat = AudioFormat.ENCODING_PCM_FLOAT; //quantization bit depth
+    // NOT ENCODING_PCM_FLOAT: confirmed on real hardware (2026-10-22, QMX
+    // over USB Audio Class, MediaTek audio HAL) that requesting float capture
+    // from a USB input silently produces unusable (effectively silent)
+    // samples on this HAL -- AudioALSAStreamIn's own log line, "wrong
+    // format(0x5), default use wordSize = 2", shows it falling back to a
+    // 16-bit word size internally while still being asked for 4-byte floats.
+    // Reproduced twice in two single app processes with everything else held
+    // constant (same CAT mode, same device, same session): the HAL
+    // occasionally renegotiates to 16-bit PCM across a USB re-enumeration,
+    // and decoding started working immediately every time that happened,
+    // then stopped immediately on the next reinit back to float -- this is
+    // what the whole night's RX investigation was actually chasing, not
+    // mode or device selection. Capture PCM16 instead and convert to float
+    // in the reader loop below (see startAudioRecordCapture()), matching
+    // what already reliably decodes on this hardware.
+    private static final int audioFormat = AudioFormat.ENCODING_PCM_16BIT; //quantization bit depth
 
     private AudioRecord audioRecord = null;//AudioRecord object
     private UsbAudioDevice usbAudioDevice = null; // USB audio device
@@ -583,6 +597,11 @@ public class MicRecorder {
         // read(), native releaseBuffer abort from two threads on one instance).
         final AudioRecord rec = audioRecord;
         final int myGeneration = captureGeneration;
+        // Raw capture buffer: audioFormat is ENCODING_PCM_16BIT (see its field
+        // comment for why), so AudioRecord.read() fills a short[], converted
+        // to float[] below for the rest of the pipeline (decode/waterfall)
+        // unchanged.
+        short[] rawBuffer = new short[bufferSize];
         float[] buffer = new float[bufferSize];
         // Snapshotted with `rec`: the fold below must match the channel count of
         // the AudioRecord this thread owns, not whatever a later reinit opened.
@@ -615,7 +634,11 @@ public class MicRecorder {
                     }
 
                     //read recording data
-                    int bufferReadResult = rec.read(buffer, 0, buffer.length,AudioRecord.READ_BLOCKING);
+                    int bufferReadResult = rec.read(rawBuffer, 0, rawBuffer.length, AudioRecord.READ_BLOCKING);
+
+                    if (bufferReadResult > 0) {
+                        int16ToFloat(rawBuffer, bufferReadResult, buffer);
+                    }
 
                     if (bufferReadResult < 0) {
                         // Error codes (ERROR_INVALID_OPERATION=-3, ERROR_BAD_VALUE=-2,
@@ -901,6 +924,25 @@ public class MicRecorder {
         if (source == MediaRecorder.AudioSource.UNPROCESSED) return "UNPROCESSED";
         if (source == MediaRecorder.AudioSource.VOICE_RECOGNITION) return "VOICE_RECOGNITION";
         return String.valueOf(source);
+    }
+
+    /**
+     * Convert {@code length} 16-bit PCM samples to float, filling {@code dest}
+     * in place from index 0 -- the caller's hot-path buffer, reused across
+     * reads rather than allocated per call. Matches {@code float2Short()}'s
+     * inverse scale elsewhere in the app (the TX path, {@code
+     * FT8TransmitSignal.java}): full-scale short (+/-32767) maps to +/-1.0f.
+     *
+     * <p>Package-visible for testing.
+     *
+     * @param src    source samples; must be at least {@code length} long
+     * @param length number of samples to convert
+     * @param dest   destination; must be at least {@code length} long
+     */
+    static void int16ToFloat(short[] src, int length, float[] dest) {
+        for (int i = 0; i < length; i++) {
+            dest[i] = src[i] / 32767.0f;
+        }
     }
 
     /**
