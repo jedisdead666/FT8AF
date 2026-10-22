@@ -184,12 +184,21 @@ loop via a new `int16ToFloat()` helper, matching the existing
 `float2Short()` inverse scale already used on the TX side. Covered by a new
 unit test file (`MicRecorderInt16ToFloatTest`).
 
-**CONFIRMED on real hardware (2026-10-22)**: real FT8 decodes after
-installing this build — the RX investigation that ran all night is
-resolved. (A full multi-cycle log pull to double-confirm `audio_format 1`
-with no `"wrong format(0x5)"` warning was requested but not yet seen in
-this conversation; the live waterfall decode result is itself the
-operationally meaningful confirmation.)
+**CONFIRMED on real hardware (2026-10-22)**: 7 consecutive decode cycles
+with real content, every HAL USB capture open at `fmt=1` (PCM16), zero
+`"wrong format(0x5)"` warnings across the whole session, radio in Digi mode
+(`MD6;`) with `Q90;` also sent on connect per the earlier fix. The RX
+investigation that ran all night is fully resolved.
+
+**Known follow-up, not urgent (self-heals)**: the QMX's Android
+`AudioDeviceInfo` id changes across every USB replug/re-enumeration (seen
+again this session: `id=525` → `deviceFound=false` → operator re-picks →
+`id=677` → `deviceFound=true`). `findAudioDeviceById()`/the Settings picker
+match by that numeric id, which isn't stable across reconnects, so a stale
+persisted id silently falls back to no device until the operator manually
+re-selects it in Settings. Matching by product name (or VID/PID, where
+available) as a fallback when the persisted id isn't found would remove the
+need for that manual re-pick.
 
 ## Known issue, not yet root-caused (TX, from 2026-10-21, not re-tested)
 
