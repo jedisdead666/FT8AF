@@ -6,15 +6,17 @@ hamlib's real `qrplabs_qmx_caps` instead of hand-rolled Kenwood emulation.
 Full narrative, with logs, is in the PR #925 comment thread; this is the
 condensed current state.
 
-## Confirmed working (real hardware, 2026-10-21)
+## Confirmed working (real hardware)
 
 - `rigaddress.txt` entry (`Qrp Labs QMX (Hamlib),809,9600,26`) resolves to
   hamlib's real `RIG_MODEL_QRPLABS_QMX` (`0x809` = 2057) and opens correctly.
 - CAT works end-to-end: frequency set from the app matches the radio's own
   displayed frequency after a live change (tested at 7.074 MHz and
-  14.074 MHz).
+  14.074 MHz). (2026-10-21)
 - Mode stays in Digital through a frequency change (previously it reverted to
-  USB every time).
+  USB every time). (2026-10-21)
+- **RX decodes real FT8 traffic** (2026-10-22, `38f8e9d8`): confirmed on real
+  hardware after the PCM16-capture fix below.
 
 ## Bugs found and fixed, in order
 
@@ -180,9 +182,14 @@ source, suggesting this was the original format before an earlier,
 unrelated change switched it to float) and converts to float in the reader
 loop via a new `int16ToFloat()` helper, matching the existing
 `float2Short()` inverse scale already used on the TX side. Covered by a new
-unit test file (`MicRecorderInt16ToFloatTest`). Real-hardware confirmation
-is pending the next clean build/test cycle on the Windows laptop (offline
-at the moment this was written — message is queued for when it reconnects).
+unit test file (`MicRecorderInt16ToFloatTest`).
+
+**CONFIRMED on real hardware (2026-10-22)**: real FT8 decodes after
+installing this build — the RX investigation that ran all night is
+resolved. (A full multi-cycle log pull to double-confirm `audio_format 1`
+with no `"wrong format(0x5)"` warning was requested but not yet seen in
+this conversation; the live waterfall decode result is itself the
+operationally meaningful confirmation.)
 
 ## Known issue, not yet root-caused (TX, from 2026-10-21, not re-tested)
 
