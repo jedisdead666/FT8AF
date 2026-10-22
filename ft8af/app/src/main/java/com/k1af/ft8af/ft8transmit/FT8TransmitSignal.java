@@ -1114,7 +1114,10 @@ public class FT8TransmitSignal {
 
         // set preferred output device
         if (GeneralVariables.audioOutputDeviceId > 0) {
-            audioTrack.setPreferredDevice(preferredOutputDevice); // null resets to default
+            boolean ok = audioTrack.setPreferredDevice(preferredOutputDevice); // null resets to default
+            GeneralVariables.fileLog(String.format(
+                    "playFT8Signal: AudioTrack preferredDevice id=%d ok=%b deviceFound=%b",
+                    GeneralVariables.audioOutputDeviceId, ok, preferredOutputDevice != null));
         } else {
             applyDefaultOutputRoutingOverride(audioTrack);
         }
@@ -3294,7 +3297,10 @@ public class FT8TransmitSignal {
             track = new AudioTrack(tuneAttributes, tuneFormat, bufBytes,
                     AudioTrack.MODE_STREAM, 0);
             if (GeneralVariables.audioOutputDeviceId > 0) {
-                track.setPreferredDevice(tuneOutputDevice);
+                boolean ok = track.setPreferredDevice(tuneOutputDevice);
+                GeneralVariables.fileLog(String.format(
+                        "TUNE: AudioTrack preferredDevice id=%d ok=%b deviceFound=%b",
+                        GeneralVariables.audioOutputDeviceId, ok, tuneOutputDevice != null));
             } else {
                 applyDefaultOutputRoutingOverride(track);
             }
