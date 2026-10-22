@@ -170,6 +170,27 @@ export JAVA_HOME=<jdk17-home>
 ./gradlew testDebugUnitTest --tests <fully.qualified.ClassName>
 ```
 
+### Android emulator flows
+
+`ft8af/app/src/androidTest/kotlin/com/k1af/ft8af/flows/` holds scripted UI
+flows that run the real app on the CI emulator (the `Instrumented tests
+(emulator)` job): launch, band change, decoding a recorded FT8 WAV from
+`src/main/cpp/ft8af_glue/testdata/ft8`, and a setting surviving an activity
+restart. Each flow saves a screenshot of the screen it ended on; the job uploads
+them as the `emulator-flows` artifact (plus `logcat.txt` when it fails), so a
+PR's UI can be checked without a phone. When you change a screen one of these
+flows walks through, update the flow in the same PR.
+
+Run them locally against an **emulator only** from the `ft8af` dir with
+`./gradlew connectedDebugAndroidTest` (Windows:
+`cmd.exe /c "gradlew.bat connectedDebugAndroidTest"`). Don't run it with your
+own phone attached: the task uninstalls the app at the end (wiping its logbook
+and settings), and the flows drive live state (band, operator identity, and a
+recorded slot through the real decode pipeline, which can spot to PSKReporter
+or start the auto-sequencer). On a physical device the flows skip themselves,
+but the uninstall still happens. The screenshots land on the device in
+`/data/local/tmp/ft8af-flows/`.
+
 ### iOS (`ios/`, macOS only)
 
 Pure logic goes in the `FT8AFKit` Swift package (`ios/FT8AFKit/Sources/…`),
