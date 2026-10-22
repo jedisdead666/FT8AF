@@ -45,6 +45,19 @@ public class MicRecorder {
     private boolean useUsbAudio = false;
 
     private volatile boolean isRunning = false;//whether currently in recording state
+    // Whether the OWNER (HamRecorder) wants capture running -- set only by
+    // start()/stopRecord(), the two owner-facing entry points. Deliberately
+    // separate from isRunning, which a failed AudioRecord also flips to false
+    // as a side effect (see startAudioRecordCapture()'s capture thread, and
+    // reinitialize() below): reinitialize() used to key its end-of-method
+    // restart decision off isRunning, so one transient createRecord_l failure
+    // (observed in the field right after a replug, before the audio HAL had
+    // caught up) permanently masked the owner's actual intent -- every later
+    // reinitialize() (e.g. the operator picking a perfectly valid device
+    // afterward) saw isRunning already false and silently skipped start(),
+    // leaving capture stopped for the rest of the session even though
+    // setPreferredDevice() kept reporting ok=true/deviceFound=true.
+    private volatile boolean shouldBeRunning = false;
     private OnDataListener onDataListener;
 
     // AudioRecord capture-thread handoff. reinitialize() can be called from
@@ -430,6 +443,7 @@ public class MicRecorder {
     }
 
     public synchronized void start(){
+        shouldBeRunning = true;
         if (isRunning) return;
 
         if (useUsbAudio && usbAudioDevice != null) {
@@ -669,9 +683,16 @@ public class MicRecorder {
 
     /**
      * Stop recording. When recording stops, all monitors in the listener list are removed.
+     *
+     * <p>Owner-facing: also clears {@link #shouldBeRunning}, so a later
+     * {@link #reinitialize()} (e.g. from a USB attach event) knows not to
+     * restart capture the operator explicitly stopped. {@link #reinitialize()}
+     * itself does the equivalent teardown inline rather than calling this, so
+     * its own internal stop/rebuild cycle never clears that intent flag.
      */
     public synchronized void stopRecord() {
         isRunning = false;
+        shouldBeRunning = false;
         if (useUsbAudio && usbAudioDevice != null) {
             usbAudioDevice.stopCapture();
         }
@@ -693,14 +714,20 @@ public class MicRecorder {
      */
     @SuppressLint("MissingPermission")
     public synchronized void reinitialize() {
-        boolean wasRunning = isRunning;
         OnDataListener savedListener = onDataListener;
 
-        // Supersede the running reader thread's generation, then stop capture.
+        // Supersede the running reader thread's generation, then stop capture
+        // inline (NOT via stopRecord(): that also clears shouldBeRunning, which
+        // must survive this method's own internal stop/rebuild cycle -- see
+        // shouldBeRunning's field comment for why keying off isRunning here
+        // used to permanently wedge capture after one transient failure).
         captureGeneration++;
-        stopRecord();
+        isRunning = false;
+        if (useUsbAudio && usbAudioDevice != null) {
+            usbAudioDevice.stopCapture();
+        }
 
-        // Release old AudioRecord (stopRecord only sets isRunning=false). The
+        // Release old AudioRecord (the above only sets isRunning=false). The
         // reader thread may still be inside a blocking read() on it: stop()
         // unblocks that read, and we must wait for the thread to exit before
         // release() — releasing mid-read is a fatal native abort
@@ -774,9 +801,13 @@ public class MicRecorder {
             }
         }
 
-        // Restore listener and restart if it was running
+        // Restore listener and restart if the owner still wants capture
+        // running -- shouldBeRunning, NOT isRunning: a transient failure in
+        // the rebuild above (or an earlier reinitialize() call) may already
+        // have left isRunning false with no owner-driven stopRecord() ever
+        // happening, and that must not be read as "capture no longer wanted".
         onDataListener = savedListener;
-        if (wasRunning) {
+        if (shouldBeRunning) {
             start();
         }
     }
