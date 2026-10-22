@@ -36,11 +36,28 @@ public class HamlibRig extends BaseRig {
      * manual (qrp-labs.com/images/qmx/manuals/cat_1_04_003.pdf) only accepts
      * single-digit MD values (1,2,3,5,6,7,8,9); 'D' is not one of them and is
      * silently rejected, so the radio's mode was never actually being set at
-     * all via this path. Table index 6 holds RIG_MODE_RTTY ("FSK Mode" per
-     * that table's own comment) -- exactly the QMX manual's own "6 (FSK)",
-     * its real digital mode. "RTTY" therefore produces the valid "MD6;".
+     * all via this path.
+     *
+     * <p>NOT "RTTY" either, despite also producing a valid command (table
+     * index 6 = RIG_MODE_RTTY -&gt; "MD6;", the QMX manual's own "6 (FSK)").
+     * hamlib's RTTY mode is the radio's literal hardware FSK demodulator --
+     * the dedicated RTTY-keying path Kenwood-style rigs use, which bypasses
+     * the normal SSB receive chain FT8's audio tones need. Confirmed on real
+     * hardware: the QMX's own S-meter stayed active on real RF in USB mode
+     * and went completely dead in FSK (MD6) mode -- CAT accepted the command
+     * and the app reported "Digital" mode throughout, but the radio's receive
+     * audio path was never actually listening the way FT8 (an audio-tone
+     * mode, not true FSK) needs.
+     *
+     * <p>Table index 2 holds RIG_MODE_USB -- the QMX manual's own "2 (USB)" --
+     * and FT8/FT4 are audio-tone modes transmitted/received over a plain USB
+     * passband, exactly like voice SSB; they need no special radio-side mode
+     * at all, matching the QDX's own field-confirmed behavior elsewhere in
+     * this project ("CAT does work getting decodes in usb mode"). "USB"
+     * produces the valid "MD2;" and, unlike PKTUSB/RTTY, is index &lt;= 9 so
+     * kenwood_set_mode() encodes it as a literal digit, not a letter.
      */
-    private static final String FT_MODE = "RTTY";
+    private static final String FT_MODE = "USB";
 
     private final int modelId;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
