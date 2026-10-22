@@ -1608,7 +1608,13 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                 com.k1af.ft8af.log.AdifLogFile.logQso(context, record);
             }
             if (afterInsertQSLData!=null){
-                afterInsertQSLData.doAfterInsert(false,true);//New QSL
+                // record.isInvalid: set by QSLRecord's own field parsing (e.g. an
+                // unparseable RST_SENT/RST_RCVD or FREQ) when the record was still
+                // inserted with that one field dropped. A real-world 87 MB ADIF
+                // import had 73 such records that this previously reported as
+                // perfectly valid, hard-coding false here regardless of the
+                // record's own flag.
+                afterInsertQSLData.doAfterInsert(record.isInvalid,true);//New QSL
             }
 
         } else {
@@ -1670,7 +1676,7 @@ public class DatabaseOpr extends SQLiteOpenHelper {
             }
 
             if (afterInsertQSLData!=null){
-                afterInsertQSLData.doAfterInsert(false,false);//Already exists, QSL needs updating
+                afterInsertQSLData.doAfterInsert(record.isInvalid,false);//Already exists, QSL needs updating
             }
         }
         return true;
