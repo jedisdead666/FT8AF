@@ -111,9 +111,15 @@ final class TxPlayerService: @unchecked Sendable {
     /// keying a disconnected node (which aborts the app).
     @objc private func handleConfigChange() {
         lock.lock()
+        invalidateConnectionLocked()
+        lock.unlock()
+    }
+
+    /// Mark the node's connection stale and drop the converter so the next
+    /// `play()` reconnects. Caller must hold `lock`.
+    private func invalidateConnectionLocked() {
         conn.invalidateConnection()
         outputConverter = nil
-        lock.unlock()
     }
 
     /// Attach (once) and connect the player node, creating the format
@@ -197,8 +203,7 @@ final class TxPlayerService: @unchecked Sendable {
             } catch {
                 // Couldn't bring the engine back; the connection is now stale.
                 lock.lock()
-                conn.invalidateConnection()
-                outputConverter = nil
+                invalidateConnectionLocked()
                 lock.unlock()
                 completion?()
                 return false
@@ -264,8 +269,7 @@ final class TxPlayerService: @unchecked Sendable {
         if raised != nil {
             lock.lock()
             _isPlaying = false
-            conn.invalidateConnection()
-            outputConverter = nil
+            invalidateConnectionLocked()
             lock.unlock()
             completion?()
             return false
