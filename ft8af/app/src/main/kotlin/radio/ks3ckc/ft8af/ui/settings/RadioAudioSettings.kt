@@ -537,6 +537,14 @@ fun RadioAudioSettings(
                 audioInputChannels = selectedDeviceMaxChannels(
                     context, deviceId, AudioManager.GET_DEVICES_INPUTS,
                 )
+                // The live MicRecorder only reads audioInputDeviceId at construction
+                // time (openAudioRecord()'s setPreferredDevice / openUsbAudioInput()),
+                // so without this the newly-picked device is persisted but the running
+                // capture keeps using whatever it opened with — silently, with no error
+                // — until the next USB attach/detach or app restart happens to reopen
+                // it. Mirrors the RX-channel-change and SCO-connect paths, which already
+                // reopen for the same reason.
+                mainViewModel.reinitializeAudioInput()
                 // Selecting a Bluetooth-SCO mic must actually bring SCO up (issue #723);
                 // deselecting it releases SCO unless a Bluetooth rig still needs it.
                 mainViewModel.refreshBluetoothHeadsetMode()
