@@ -185,6 +185,46 @@ public class UsbAudioDevice {
     }
 
     /**
+     * Resolves a possibly-stale {@code AudioManager} device id against the
+     * current device list: an exact match on {@code ids} if present,
+     * otherwise the first entry whose {@code productNames} equals {@code
+     * fallbackProductName}. A USB device's numeric {@code AudioDeviceInfo} id
+     * is NOT stable across a replug/power-cycle re-enumeration (confirmed on
+     * real hardware: a QMX power-cycle alone changed it, reverting the
+     * Settings audio-device picker to "Default"), but its product name is --
+     * callers derive {@code fallbackProductName} from the persisted VID:PID
+     * via the live USB device list (e.g. {@link #findDeviceByVidPid}'s
+     * {@code getProductName()}), which doesn't change across reconnects
+     * either.
+     *
+     * <p>Pure/plain-array so it is unit-testable without Android types:
+     * {@code AudioDeviceInfo} has no public constructor, so a caller passing
+     * real {@code AudioDeviceInfo[]} would make this logic untestable outside
+     * Robolectric.
+     *
+     * @param ids                 device ids, in list order
+     * @param productNames        product names, same order as {@code ids}
+     *                            (entries may be null)
+     * @param deviceId            the persisted device id to resolve
+     * @param fallbackProductName product name to fall back to matching by,
+     *                            or null if there is nothing to fall back to
+     * @return the matching index into {@code ids}/{@code productNames}, or
+     *     -1 if nothing matched
+     */
+    public static int resolveDeviceIndex(int[] ids, String[] productNames, int deviceId,
+                                          String fallbackProductName) {
+        for (int i = 0; i < ids.length; i++) {
+            if (ids[i] == deviceId) return i;
+        }
+        if (fallbackProductName != null) {
+            for (int i = 0; i < productNames.length; i++) {
+                if (fallbackProductName.equals(productNames[i])) return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Open the USB audio device and discover audio endpoints.
      */
     public boolean open(Context context, UsbDevice device) {

@@ -134,18 +134,28 @@ public class AudioDeviceSpinnerAdapter extends BaseAdapter {
     /**
      * Get the list position for a given device ID.
      * deviceId == 0 → 0 (Default)
-     * deviceId > 0 → search AudioManager devices
+     * deviceId > 0 → search AudioManager devices by id; if not found (stale
+     *     across a USB replug/power-cycle re-enumeration -- confirmed on real
+     *     hardware: a QMX power-cycle alone changed its id and reverted this
+     *     picker to "Default"), fall back to matching by the persisted
+     *     VID:PID's current product name, which doesn't change across
+     *     reconnects. See {@link UsbAudioDevice#resolveDeviceIndex}.
      * deviceId == -1 → search USB audio devices by VID:PID
      */
     public int getPositionByDeviceId(int deviceId) {
         if (deviceId == 0) return 0;
 
         if (deviceId > 0) {
+            int[] ids = new int[audioDeviceList.size()];
+            String[] names = new String[audioDeviceList.size()];
             for (int i = 0; i < audioDeviceList.size(); i++) {
-                if (audioDeviceList.get(i).getId() == deviceId) {
-                    return i + 1;
-                }
+                ids[i] = audioDeviceList.get(i).getId();
+                CharSequence name = audioDeviceList.get(i).getProductName();
+                names[i] = name == null ? null : name.toString();
             }
+            int idx = UsbAudioDevice.resolveDeviceIndex(ids, names, deviceId,
+                    persistedVidPidProductName());
+            if (idx >= 0) return idx + 1;
         }
 
         // For USB audio (deviceId == -1), match by VID:PID
@@ -170,6 +180,27 @@ public class AudioDeviceSpinnerAdapter extends BaseAdapter {
         }
 
         return 0; // fallback to Default
+    }
+
+    /**
+     * Product name of the already-enumerated {@link #usbAudioDeviceList}
+     * entry matching this direction's persisted VID:PID, or null if there's
+     * nothing persisted (VID 0) or no current match.
+     */
+    private String persistedVidPidProductName() {
+        int vid = isInput
+                ? com.k1af.ft8af.GeneralVariables.usbAudioInputVendorId
+                : com.k1af.ft8af.GeneralVariables.usbAudioOutputVendorId;
+        if (vid == 0) return null;
+        int pid = isInput
+                ? com.k1af.ft8af.GeneralVariables.usbAudioInputProductId
+                : com.k1af.ft8af.GeneralVariables.usbAudioOutputProductId;
+        for (UsbAudioDevice.UsbAudioDeviceInfo info : usbAudioDeviceList) {
+            if (info.device.getVendorId() == vid && info.device.getProductId() == pid) {
+                return info.device.getProductName();
+            }
+        }
+        return null;
     }
 
     @SuppressLint({"ViewHolder", "InflateParams"})
