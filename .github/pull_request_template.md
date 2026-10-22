@@ -1,7 +1,9 @@
 ## Debug APK
 
 <!-- CI posts a "Debug APK" comment with the download link once the build
-finishes. Paste that link here, or write "see the Debug APK comment". -->
+finishes. Paste that link here, or write "see the Debug APK comment".
+Write "n/a" if the PR doesn't touch ft8af/**. On a fork PR there is no
+comment; link the artifact from the workflow run's summary instead. -->
 
 ## Device test
 
