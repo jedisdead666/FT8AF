@@ -57,6 +57,8 @@ public class HamlibRig extends BaseRig {
 
     private final int modelId;
     private final NativeApi nativeApi;
+    /** Clock behind the open-retry backoff; see {@link #ensureOpen()}. */
+    private final java.util.function.LongSupplier elapsedRealtimeMs;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile long handle = 0;
     /**
@@ -92,8 +94,21 @@ public class HamlibRig extends BaseRig {
 
     /** Visible for tests: inject a fake native layer to drive races on the JVM. */
     HamlibRig(int modelId, NativeApi nativeApi) {
+        this(modelId, nativeApi, SystemClock::elapsedRealtime);
+    }
+
+    /**
+     * Visible for tests: also inject the clock behind the open-retry backoff
+     * (see {@link #ensureOpen()}), so it's testable deterministically rather
+     * than depending on real elapsed time. {@code SystemClock.elapsedRealtime()}
+     * is otherwise unmocked and returns 0 under a plain (non-Robolectric) JVM
+     * unit test (app/build.gradle's {@code unitTests.returnDefaultValues}) --
+     * harmless on its own, but worth not depending on at all here.
+     */
+    HamlibRig(int modelId, NativeApi nativeApi, java.util.function.LongSupplier elapsedRealtimeMs) {
         this.modelId = modelId;
         this.nativeApi = nativeApi;
+        this.elapsedRealtimeMs = elapsedRealtimeMs;
     }
 
     /**
@@ -150,8 +165,15 @@ public class HamlibRig extends BaseRig {
      * while still recovering promptly once the radio answers again.
      */
     private static final long OPEN_RETRY_BACKOFF_MS = 15_000;
-    /** {@link SystemClock#elapsedRealtime()} ms, NOT wall-clock: see {@link #ensureOpen()}. */
-    private volatile long lastOpenFailureAtMs = 0;
+    /**
+     * {@link #elapsedRealtimeMs}'s reading at the last open failure, or
+     * {@link Long#MIN_VALUE} as the "never failed" sentinel -- NOT 0: a plain
+     * JVM unit test (no Robolectric) gets 0 for every unmocked {@code
+     * SystemClock.elapsedRealtime()} call, which collided with 0 as a
+     * sentinel and made the very first backoff check after a failure see
+     * "now == last failure == 0" and wrongly allow an immediate retry.
+     */
+    private volatile long lastOpenFailureAtMs = Long.MIN_VALUE;
 
     /**
      * Whether {@link #ensureOpen()} should attempt a fresh native open now,
@@ -167,10 +189,12 @@ public class HamlibRig extends BaseRig {
      *                       jumps back) or skip the backoff entirely (clock
      *                       jumps forward)
      * @param lastFailureAtMs the same clock's reading when the last attempt
-     *                        failed, or 0 if there hasn't been one
+     *                        failed, or {@link Long#MIN_VALUE} if there
+     *                        hasn't been one (NOT 0 -- see {@link
+     *                        #lastOpenFailureAtMs}'s javadoc)
      */
     static boolean shouldAttemptOpen(long nowMs, long lastFailureAtMs, long backoffMs) {
-        return lastFailureAtMs == 0 || nowMs - lastFailureAtMs >= backoffMs;
+        return lastFailureAtMs == Long.MIN_VALUE || nowMs - lastFailureAtMs >= backoffMs;
     }
 
     /**
@@ -190,7 +214,7 @@ public class HamlibRig extends BaseRig {
         if (handle != 0) {
             return true;
         }
-        if (!shouldAttemptOpen(SystemClock.elapsedRealtime(), lastOpenFailureAtMs, OPEN_RETRY_BACKOFF_MS)) {
+        if (!shouldAttemptOpen(elapsedRealtimeMs.getAsLong(), lastOpenFailureAtMs, OPEN_RETRY_BACKOFF_MS)) {
             return false;
         }
         BaseRigConnector c = getConnector();
@@ -210,7 +234,7 @@ public class HamlibRig extends BaseRig {
         long h = nativeApi.nativeCreate(modelId, sink);
         if (h == 0) {
             Log.w(TAG, "nativeCreate failed for hamlib model " + modelId);
-            lastOpenFailureAtMs = SystemClock.elapsedRealtime();
+            lastOpenFailureAtMs = elapsedRealtimeMs.getAsLong();
             return false;
         }
         // Publish the handle BEFORE running the handshake: onReceiveData()
@@ -227,11 +251,11 @@ public class HamlibRig extends BaseRig {
         if (rc != 0) {
             Log.w(TAG, "nativeRigOpen failed for hamlib model " + modelId + " rc=" + rc);
             releaseHandle();
-            lastOpenFailureAtMs = SystemClock.elapsedRealtime();
+            lastOpenFailureAtMs = elapsedRealtimeMs.getAsLong();
             return false;
         }
         Log.i(TAG, "hamlib model " + modelId + " opened");
-        lastOpenFailureAtMs = 0;
+        lastOpenFailureAtMs = Long.MIN_VALUE;
         disableQmxIqModeIfApplicable(c);
         return true;
     }

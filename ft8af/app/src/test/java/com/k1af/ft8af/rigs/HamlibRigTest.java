@@ -315,7 +315,7 @@ public class HamlibRigTest {
 
     @Test
     public void shouldAttemptOpen_noPriorFailure_true() {
-        assertThat(HamlibRig.shouldAttemptOpen(1_000L, 0L, 15_000L)).isTrue();
+        assertThat(HamlibRig.shouldAttemptOpen(1_000L, Long.MIN_VALUE, 15_000L)).isTrue();
     }
 
     @Test
@@ -340,12 +340,22 @@ public class HamlibRigTest {
         // 354 of them in ~17 minutes via the app's ~3s CAT-liveness watchdog
         // tick. Simulates two such calls landing within the same instant (well
         // inside the 15s backoff): only the first should touch the native layer.
+        //
+        // Drives a fake clock rather than the real one (the 3-arg constructor):
+        // android.os.SystemClock.elapsedRealtime() is unmocked and returns 0 in
+        // this plain (non-Robolectric) JVM test, same as it would for every
+        // reading in a real run here -- harmless by itself once the "never
+        // failed" sentinel is Long.MIN_VALUE rather than 0, but a fake clock
+        // also makes the backoff window itself deterministic instead of
+        // depending on how fast the test happens to run.
         FakeNativeApi fake = new FakeNativeApi();
         fake.rigOpenRc = -1; // every open attempt fails, like an unresponsive radio
-        HamlibRig rig = new HamlibRig(2057, fake);
+        AtomicLong clockMs = new AtomicLong(1_000L);
+        HamlibRig rig = new HamlibRig(2057, fake, clockMs::get);
         rig.setConnector(connectedConnector());
 
-        rig.setFreqToRig(); // first CAT call: attempts to open, fails
+        rig.setFreqToRig(); // first CAT call at t=1000ms: attempts to open, fails
+        clockMs.set(1_500L); // 500ms later, well inside the 15s backoff
         rig.readFreqFromRig(); // a second CAT call landing moments later (same tick cycle)
         CountDownLatch drained = new CountDownLatch(1);
         rig.submitForTest(drained::countDown);
@@ -355,5 +365,28 @@ public class HamlibRigTest {
         // skipped by the backoff, not a second failed create/open cycle.
         assertThat(fake.createCalls).containsExactly(2057);
         assertThat(fake.closeCalls).containsExactly(1L);
+    }
+
+    @Test
+    public void ensureOpen_catCallAfterBackoffElapses_retries() throws Exception {
+        // The other half of the backoff: once the window has genuinely passed,
+        // the next CAT call must try again, not stay stuck forever.
+        FakeNativeApi fake = new FakeNativeApi();
+        fake.rigOpenRc = -1;
+        AtomicLong clockMs = new AtomicLong(1_000L);
+        HamlibRig rig = new HamlibRig(2057, fake, clockMs::get);
+        rig.setConnector(connectedConnector());
+
+        rig.setFreqToRig(); // fails at t=1000ms
+        clockMs.set(1_000L + 15_000L); // exactly at the backoff boundary
+        rig.readFreqFromRig(); // must retry, not skip
+
+        CountDownLatch drained = new CountDownLatch(1);
+        rig.submitForTest(drained::countDown);
+        assertThat(drained.await(5, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(fake.createCalls).containsExactly(2057, 2057);
+        // Handles are 1 then 2 -- FakeNativeApi.nextHandle increments per create.
+        assertThat(fake.closeCalls).containsExactly(1L, 2L);
     }
 }
