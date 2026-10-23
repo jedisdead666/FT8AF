@@ -418,7 +418,9 @@ fun ActiveQsoPanel(
                     isTransmitting -> stringResource(R.string.qsopanel_qsoing_with, displayCallsign)
                     else -> stringResource(R.string.qsopanel_waiting_for, displayCallsign)
                 },
-                snr = if (displayCallsign != null) toCallsign?.snr else null,
+                snr = if (displayCallsign != null) {
+                    qsoBannerSnr(latestDecodeFrom(messageList, displayCallsign), toCallsign?.snr)
+                } else null,
                 onClick = if (displayCallsign != null) onReopenSheet else null,
                 onLog = if (displayCallsign != null) {
                     {
@@ -473,7 +475,7 @@ fun ActiveQsoPanel(
 @Composable
 private fun StationHeader(
     targetCallsign: String,
-    snr: Int?,
+    snr: QsoBannerSnr?,
     onClick: (() -> Unit)? = null,
     onLog: (() -> Unit)? = null,
     onClear: (() -> Unit)? = null,
@@ -506,10 +508,18 @@ private fun StationHeader(
                 fontWeight = FontWeight.Bold,
                 fontFamily = GeistMonoFamily,
             )
-            if (snr != null) {
+            snr?.heard?.let { heard ->
                 Text(
-                    text = if (snr >= 0) "+${snr}dB" else "${snr}dB",
+                    text = bannerSnrLabel(heard),
                     color = Signal,
+                    fontSize = 11.sp,
+                    fontFamily = GeistMonoFamily,
+                )
+            }
+            snr?.sent?.let { sent ->
+                Text(
+                    text = stringResource(R.string.qsopanel_sent_report, bannerSnrLabel(sent)),
+                    color = TextFaint,
                     fontSize = 11.sp,
                     fontFamily = GeistMonoFamily,
                 )
@@ -794,6 +804,43 @@ internal fun orderCallerQueue(
  * with no reported SNR carries 0, which renders as "+0".
  */
 internal fun callerSnrLabel(snr: Int): String = if (snr >= 0) "+$snr" else "$snr"
+
+/**
+ * The newest decode from [callsign] in [messages] (arrival order), or null. Matches
+ * the raw callsign field as well as the bracket-stripped one, so a hashed `<CALL>`
+ * is found whether the caller holds it bracketed (the sheet, keyed by the tapped
+ * row) or stripped (the banner, keyed by the TX target). The QSO sheet's Signal card
+ * and the QSO banner both read this decode, so they show the same SNR (#953).
+ */
+internal fun latestDecodeFrom(messages: List<Ft8Message>?, callsign: String?): Ft8Message? {
+    if (callsign.isNullOrEmpty()) return null
+    return messages?.lastOrNull {
+        it.callsignFrom.equals(callsign, ignoreCase = true) ||
+            it.getCallsignFrom().equals(callsign, ignoreCase = true)
+    }
+}
+
+/**
+ * The two SNR values the QSO banner can show. [heard] is how we last heard the
+ * target (the same number as the sheet's Signal card). [sent] is the report we put
+ * in our own TX messages; it's fixed when the QSO starts, so it drifts from [heard]
+ * as conditions change. Showing it unlabelled is what made #953 look like a bug.
+ */
+internal data class QsoBannerSnr(val heard: Int?, val sent: Int?)
+
+/**
+ * Pick the banner SNRs from the target's [latest] decode and the [sentReport] held
+ * on the TX target. [sent] is only kept when it adds something: when we haven't
+ * heard the target in the current list, or when it differs from [heard].
+ */
+internal fun qsoBannerSnr(latest: Ft8Message?, sentReport: Int?): QsoBannerSnr {
+    val heard = latest?.takeIf { it.hasSnr() }?.snr
+    val sent = sentReport?.takeIf { it != Ft8Message.SNR_UNKNOWN && it != heard }
+    return QsoBannerSnr(heard = heard, sent = sent)
+}
+
+/** Banner SNR text: "+3dB" / "-7dB". */
+internal fun bannerSnrLabel(snr: Int): String = if (snr >= 0) "+${snr}dB" else "${snr}dB"
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
