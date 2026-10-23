@@ -3387,36 +3387,40 @@ public class FT8TransmitSignal {
 
 
     /**
-     * TX audio attributes: deliberately AWAY from {@code USAGE_MEDIA}/{@code
-     * CONTENT_TYPE_MUSIC}. Real hardware (a QRP Labs QMX, confirmed against
-     * the two other apps known to drive it correctly) showed those
-     * attributes resolving to {@code AUDIO_STREAM_MUSIC}, which on this
-     * device got a fixed -6 dB cut from the platform's own volume-curve
-     * policy -- applied by the audio policy manager per volume-source,
-     * independent of the app's own volume index (confirmed happening at max
-     * index, 15/15) -- plus an OEM "Dolby Listener" enhancement effect
-     * inserted into the output's mix chain. {@code USAGE_VOICE_COMMUNICATION}
-     * resolves to a different volume-source/output on most Android audio
-     * HALs (the same reason VoIP and other "raw audio to a USB modem" apps
-     * commonly use it over {@code USAGE_MEDIA}), escaping the -6 dB curve
-     * for certain and plausibly the Dolby chain too if it causes routing to
-     * a different mixer thread than media audio uses. {@code FLAG_LOW_LATENCY}
-     * is requested as a secondary, independent measure -- see {@link
-     * #buildTxAudioTrack} -- though it alone would not have escaped either:
-     * the volume curve applies regardless of mixer path, and effects already
-     * attached to an output's session-0 (global mix) chain commonly make
-     * AudioFlinger deny the FAST path outright for that output, silently,
-     * with no error surfaced to the app.
+     * TX audio attributes. Still {@code USAGE_MEDIA}/{@code
+     * CONTENT_TYPE_MUSIC} -- real hardware (a QRP Labs QMX) showed this
+     * resolving to {@code AUDIO_STREAM_MUSIC}, which on that device got a
+     * fixed -6 dB cut from the platform's own volume-curve policy (applied
+     * per volume-source, independent of the app's own volume index --
+     * confirmed happening at max index, 15/15), plus an OEM "Dolby Listener"
+     * enhancement effect inserted into the output's mix chain -- but {@code
+     * USAGE_VOICE_COMMUNICATION} was tried and reverted: it resolves to
+     * {@code AUDIO_STREAM_VOICE_CALL}, which on real hardware was confirmed
+     * sitting at its MINIMUM index (1 of 8) for this USB output, with no
+     * ordinary way for the operator to raise it outside an active call --
+     * tens of dB worse than the music curve's -6 dB, not better. Caught via
+     * {@code dumpsys audio} before an on-air test, not by actually
+     * transmitting at the lower level.
      *
-     * <p>{@code applyDefaultOutputRoutingOverride}'s existing Bluetooth-SCO
-     * steering (issue #759) forces an explicit {@code setPreferredDevice()}
-     * call regardless of usage, so it is not expected to be affected by this
-     * change -- but hasn't been re-verified against a live SCO link since.
+     * <p>{@code FLAG_LOW_LATENCY} is still requested, as an attempt at the
+     * Dolby chain specifically -- see {@link #buildTxAudioTrack} -- though
+     * it is not expected to touch the -6 dB curve itself, which applies
+     * regardless of mixer path, and effects already attached to an output's
+     * session-0 (global mix) chain commonly make AudioFlinger deny the FAST
+     * path outright for that output, silently, with no error surfaced to
+     * the app.
+     *
+     * <p>Finding a usage/content-type that both avoids the music volume
+     * curve AND doesn't land on a stream the operator can't easily turn up
+     * (or that gets silenced by ring/notification volume or Do Not Disturb,
+     * which TX audio must never be) needs real per-device volume-curve data
+     * before trying another candidate -- not left as a TODO lightly, just
+     * not safe to guess a third time without it.
      */
     private static AudioAttributes buildTxAudioAttributes() {
         return new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
                 .build();
     }
