@@ -987,6 +987,11 @@ public class MainViewModel extends ViewModel {
                         baseRig != null && baseRig.supportWaveOverCAT());
             }
 
+            // Whether this over's beginKeying() actually paused RX capture, so
+            // endKeying() only resumes what it paused (see
+            // shouldPauseRxCaptureForTx's javadoc for why/when).
+            private boolean rxPausedForThisKeying = false;
+
             /**
              * Assert PTT (+ pause SCO) through the configured control path. Shared
              * by the FT8 TX path and the tune carrier (issue #408) so the
@@ -994,6 +999,18 @@ public class MainViewModel extends ViewModel {
              * (VOX), this is a no-op and the audio itself keys the rig.
              */
             private void beginKeying() {
+                rxPausedForThisKeying = hamRecorder != null && shouldPauseRxCaptureForTx(
+                        hamRecorder.isMicSource(),
+                        hamRecorder.getMicRecorder().isUsingUsbDirect(),
+                        GeneralVariables.audioOutputDeviceId == -1,
+                        GeneralVariables.usbAudioInputVendorId,
+                        GeneralVariables.usbAudioInputProductId,
+                        GeneralVariables.usbAudioOutputVendorId,
+                        GeneralVariables.usbAudioOutputProductId);
+                if (rxPausedForThisKeying) {
+                    hamRecorder.pauseForTx();
+                }
+
                 boolean keysViaControlPath = GeneralVariables.controlMode == ControlMode.CAT
                         || GeneralVariables.controlMode == ControlMode.RTS
                         || GeneralVariables.controlMode == ControlMode.DTR;
@@ -1046,6 +1063,11 @@ public class MainViewModel extends ViewModel {
                 // The post-TX restart has been requested; the next over takes a
                 // fresh snapshot in beginKeying().
                 txScoLatch.keyUp();
+
+                if (rxPausedForThisKeying) {
+                    rxPausedForThisKeying = false;
+                    hamRecorder.resumeAfterTx();
+                }
             }
 
             @Override
@@ -2377,6 +2399,40 @@ public class MainViewModel extends ViewModel {
      */
     static boolean shouldDefaultQmxTxChannelToLeft(int hamlibModelId, boolean txChannelConfigKeyExists) {
         return hamlibModelId == HamlibRig.QRPLABS_QMX_MODEL_ID && !txChannelConfigKeyExists;
+    }
+
+    /**
+     * Whether RX capture must be paused for the duration of this TX (see
+     * {@link HamRecorder#pauseForTx()} for the real-hardware failure this
+     * works around). True only when RX is actually holding an Android
+     * capture session on the exact same USB device TX is about to play on --
+     * deliberately narrow, since the conflict was only confirmed for that
+     * exact combination:
+     *
+     * <ul>
+     *   <li>RX must be the phone-audio path ({@code HamRecorder.isMicSource()}),
+     *       not a LAN-connected rig -- those never touch this HAL at all, and
+     *       toggling capture off would spuriously gate their audio too (see
+     *       {@code HamRecorder.doOnWaveDataReceived}'s {@code isRunning} check);
+     *   <li>RX must not already be USB-direct (raw libusb capture, a
+     *       different HAL path with no ALSA proxy to conflict over);
+     *   <li>TX must not be USB-direct output either (that path is separately,
+     *       already broken -- {@code LIBUSB_ERROR_IO} -- and conflating the
+     *       two bugs would make either one harder to fix);
+     *   <li>the input and output VID:PID must both be set and match -- two
+     *       different USB devices, or a non-USB default mic/speaker, have no
+     *       reason to share this HAL's single ALSA card.
+     * </ul>
+     */
+    static boolean shouldPauseRxCaptureForTx(boolean rxIsMicSource, boolean rxIsUsbDirect,
+            boolean txIsUsbDirectOutput, int usbInputVendorId, int usbInputProductId,
+            int usbOutputVendorId, int usbOutputProductId) {
+        if (!rxIsMicSource || rxIsUsbDirect || txIsUsbDirectOutput) {
+            return false;
+        }
+        return usbInputVendorId != 0
+                && usbInputVendorId == usbOutputVendorId
+                && usbInputProductId == usbOutputProductId;
     }
 
     /**
