@@ -800,6 +800,23 @@ public class DatabaseOpr extends SQLiteOpenHelper {
     }
 
     /**
+     * Whether a config row exists for {@code keyName} at all -- synchronous
+     * (unlike every other config accessor here), for callers on a background
+     * thread that need an answer before deciding what to do next (e.g.
+     * whether the operator has ever touched a given setting themselves,
+     * distinct from it merely holding its hardcoded default).
+     */
+    public boolean hasConfigKey(String keyName) {
+        Cursor cursor = db.rawQuery("select 1 from config where KeyName = ? limit 1",
+                new String[]{keyName});
+        try {
+            return cursor.moveToFirst();
+        } finally {
+            cursor.close();
+        }
+    }
+
+    /**
      * The config value as it may appear in logcat. Keys that hold credentials
      * ({@link SettingsBackup#getSENSITIVE_KEYS()} -- the API keys and passwords a
      * settings export also withholds) are masked, so saving e.g. a World Radio

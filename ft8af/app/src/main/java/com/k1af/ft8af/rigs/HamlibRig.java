@@ -299,8 +299,12 @@ public class HamlibRig extends BaseRig {
         c.sendData("Q90;".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
     }
 
-    /** hamlib model ID for the QRP Labs QMX (0x809), per rigaddress.txt. */
-    private static final int QRPLABS_QMX_MODEL_ID = 0x809;
+    /**
+     * hamlib model ID for the QRP Labs QMX (0x809), per rigaddress.txt. Public:
+     * also used by {@code MainViewModel} to apply the QMX's LEFT-channel TX
+     * audio default on connect (see {@code shouldDefaultQmxTxChannelToLeft}).
+     */
+    public static final int QRPLABS_QMX_MODEL_ID = 0x809;
 
     /**
      * hamlib model ID for the currently-selected rig entry, or 0 if it isn't a

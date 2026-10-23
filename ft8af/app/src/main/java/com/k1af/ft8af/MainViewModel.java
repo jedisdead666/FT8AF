@@ -132,6 +132,7 @@ import com.k1af.ft8af.timer.DecodeDtDisplay;
 import com.k1af.ft8af.timer.OnUtcTimer;
 import com.k1af.ft8af.timer.UtcTimer;
 import com.k1af.ft8af.ui.ToastMessage;
+import com.k1af.ft8af.wave.AudioChannelSelect;
 import com.k1af.ft8af.wave.HamRecorder;
 import com.k1af.ft8af.wave.MicRecorder;
 import com.k1af.ft8af.wave.OnGetVoiceDataDone;
@@ -2343,6 +2344,42 @@ public class MainViewModel extends ViewModel {
     }
 
     /**
+     * The QRP Labs QMX needs mono/left-channel TX audio to fully drive its
+     * modulator -- confirmed on real hardware across three independent apps
+     * (WSJT-X, QFT8, and this one): FT8AF's historical {@code BOTH} default
+     * opens a mono {@code AudioTrack} and leaves the mono-to-stereo upmix to
+     * Android/the USB Audio Class device, with no control over how much gain
+     * that upmix applies per channel, while an explicit {@code LEFT}
+     * selection opens a genuine stereo track with the left channel at full
+     * scale and the right silenced (see {@link AudioChannelSelect}) --
+     * underdriven either way until the operator finds the manual Settings
+     * toggle. Defaults {@code txAudioChannel} to {@code LEFT} the first time
+     * the QMX connects, but only when the operator has never touched that
+     * setting at all (no "txAudioChannel" config row yet) -- an explicit
+     * choice, even {@code BOTH} itself, is never overridden.
+     */
+    private void applyQmxTxChannelDefaultIfApplicable(int hamlibModelId) {
+        if (databaseOpr == null) return;
+        if (!shouldDefaultQmxTxChannelToLeft(hamlibModelId,
+                databaseOpr.hasConfigKey(AudioChannelSelect.TX_CONFIG_KEY))) {
+            return;
+        }
+        GeneralVariables.txAudioChannel = AudioChannelSelect.LEFT;
+        databaseOpr.writeConfig(AudioChannelSelect.TX_CONFIG_KEY,
+                String.valueOf(AudioChannelSelect.LEFT), null);
+        GeneralVariables.fileLog(
+                "QMX: defaulted TX audio channel to LEFT (first connect, no prior user choice)");
+    }
+
+    /**
+     * The decision behind {@link #applyQmxTxChannelDefaultIfApplicable}, pure
+     * and testable without a real {@code DatabaseOpr}/{@code Context}.
+     */
+    static boolean shouldDefaultQmxTxChannelToLeft(int hamlibModelId, boolean txChannelConfigKeyExists) {
+        return hamlibModelId == HamlibRig.QRPLABS_QMX_MODEL_ID && !txChannelConfigKeyExists;
+    }
+
+    /**
      * Create different rig models based on the instruction set
      */
     private void connectRig() {
@@ -2447,7 +2484,9 @@ public class MainViewModel extends ViewModel {
                 android.content.Context ctx = GeneralVariables.getMainContext();
                 RigNameList.RigName selected = ctx == null ? null
                         : RigNameList.getInstance(ctx).getRigNameByIndex(GeneralVariables.modelNo);
-                baseRig = new HamlibRig(HamlibRig.modelIdFor(selected));
+                int hamlibModelId = HamlibRig.modelIdFor(selected);
+                applyQmxTxChannelDefaultIfApplicable(hamlibModelId);
+                baseRig = new HamlibRig(hamlibModelId);
                 break;
             }
         }
