@@ -135,6 +135,34 @@ public class HamlibRig extends BaseRig {
     };
 
     /**
+     * Minimum time between native open attempts after one fails (either
+     * {@code nativeCreate} or {@code nativeRigOpen}/the CAT handshake).
+     * Without this, a persistently unresponsive radio got a brand-new native
+     * bridge (loopback socket + pump thread) on every single CAT call that
+     * happens to run while handle==0 -- confirmed on real hardware: a QMX
+     * stuck in a non-CAT mode got 354 fresh bridges in about 17 minutes (each
+     * one created and torn down within ~300ms, via the ~3s CAT-liveness
+     * watchdog tick plus other CAT calls queuing in between). Each cycle was
+     * cleaned up correctly (no leak -- see releaseHandle()), but churning
+     * native resources this often for an indefinitely unresponsive radio is
+     * still wasteful. 15s caps that at roughly a quarter of the previous rate
+     * while still recovering promptly once the radio answers again.
+     */
+    private static final long OPEN_RETRY_BACKOFF_MS = 15_000;
+    private volatile long lastOpenFailureAtMs = 0;
+
+    /**
+     * Whether {@link #ensureOpen()} should attempt a fresh native open now,
+     * given when the last attempt failed. Pure/testable: {@code
+     * ensureOpen()} itself touches native calls and a connector, so the
+     * backoff decision is extracted here rather than timed with a real
+     * {@link System#currentTimeMillis()} + sleep in a test.
+     */
+    static boolean shouldAttemptOpen(long nowMs, long lastFailureAtMs, long backoffMs) {
+        return lastFailureAtMs == 0 || nowMs - lastFailureAtMs >= backoffMs;
+    }
+
+    /**
      * Open hamlib once the transport is connected. hamlib's {@code rig_open}
      * performs an initial CAT handshake, so the connector must be live and
      * forwarding bytes first. Called at the head of each worker task; safe to
@@ -150,6 +178,9 @@ public class HamlibRig extends BaseRig {
         }
         if (handle != 0) {
             return true;
+        }
+        if (!shouldAttemptOpen(System.currentTimeMillis(), lastOpenFailureAtMs, OPEN_RETRY_BACKOFF_MS)) {
+            return false;
         }
         BaseRigConnector c = getConnector();
         if (c == null || !c.isConnected() || !nativeApi.isAvailable()) {
@@ -168,6 +199,7 @@ public class HamlibRig extends BaseRig {
         long h = nativeApi.nativeCreate(modelId, sink);
         if (h == 0) {
             Log.w(TAG, "nativeCreate failed for hamlib model " + modelId);
+            lastOpenFailureAtMs = System.currentTimeMillis();
             return false;
         }
         // Publish the handle BEFORE running the handshake: onReceiveData()
@@ -184,9 +216,11 @@ public class HamlibRig extends BaseRig {
         if (rc != 0) {
             Log.w(TAG, "nativeRigOpen failed for hamlib model " + modelId + " rc=" + rc);
             releaseHandle();
+            lastOpenFailureAtMs = System.currentTimeMillis();
             return false;
         }
         Log.i(TAG, "hamlib model " + modelId + " opened");
+        lastOpenFailureAtMs = 0;
         disableQmxIqModeIfApplicable(c);
         return true;
     }
