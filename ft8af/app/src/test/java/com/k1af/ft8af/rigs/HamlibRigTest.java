@@ -355,6 +355,13 @@ public class HamlibRigTest {
         rig.setConnector(connectedConnector());
 
         rig.setFreqToRig(); // first CAT call at t=1000ms: attempts to open, fails
+        // Drain before moving the clock -- see the sibling retry test's comment;
+        // this test's own assertion happens to hold either way the race falls,
+        // but draining first keeps it deterministic rather than accidentally so.
+        CountDownLatch firstDrained = new CountDownLatch(1);
+        rig.submitForTest(firstDrained::countDown);
+        assertThat(firstDrained.await(5, TimeUnit.SECONDS)).isTrue();
+
         clockMs.set(1_500L); // 500ms later, well inside the 15s backoff
         rig.readFreqFromRig(); // a second CAT call landing moments later (same tick cycle)
         CountDownLatch drained = new CountDownLatch(1);
@@ -378,6 +385,15 @@ public class HamlibRigTest {
         rig.setConnector(connectedConnector());
 
         rig.setFreqToRig(); // fails at t=1000ms
+        // Drain the worker before moving the clock: setFreqToRig() only queues the
+        // task, so without this the clock could jump to 16000 on the test thread
+        // before the worker has even run the first (t=1000) open attempt, making
+        // the second call also see "now=16000, lastFailure=16000" (within backoff)
+        // instead of the intended "lastFailure=1000, now=16000" (past it).
+        CountDownLatch firstDrained = new CountDownLatch(1);
+        rig.submitForTest(firstDrained::countDown);
+        assertThat(firstDrained.await(5, TimeUnit.SECONDS)).isTrue();
+
         clockMs.set(1_000L + 15_000L); // exactly at the backoff boundary
         rig.readFreqFromRig(); // must retry, not skip
 
