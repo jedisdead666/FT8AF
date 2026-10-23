@@ -1086,10 +1086,7 @@ public class FT8TransmitSignal {
             GeneralVariables.fileLog(
                     "playFT8Signal: stereo TX open, channel select=" + layout.selection);
         }
-        attributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build();
+        attributes = buildTxAudioAttributes();
 
         int encoding = GeneralVariables.audioOutput32Bit
                 ? AudioFormat.ENCODING_PCM_FLOAT : AudioFormat.ENCODING_PCM_16BIT;
@@ -1111,9 +1108,7 @@ public class FT8TransmitSignal {
         int minBuf = AudioTrack.getMinBufferSize(GeneralVariables.audioSampleRate,
                 layout.channelMask, encoding);
         int bufBytes = Math.max(targetBufBytes, minBuf > 0 ? minBuf : targetBufBytes);
-        int mySession = 0;
-        audioTrack = new AudioTrack(attributes, myFormat, bufBytes,
-                AudioTrack.MODE_STREAM, mySession);
+        audioTrack = buildTxAudioTrack(attributes, myFormat, bufBytes, "playFT8Signal");
 
         // set preferred output device
         if (GeneralVariables.audioOutputDeviceId > 0) {
@@ -3281,10 +3276,7 @@ public class FT8TransmitSignal {
                     + (tuneFocusGranted ? "granted (exclusive)" : "NOT granted"));
 
             int sampleRate = GeneralVariables.audioSampleRate;
-            AudioAttributes tuneAttributes = new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build();
+            AudioAttributes tuneAttributes = buildTxAudioAttributes();
             int encoding = GeneralVariables.audioOutput32Bit
                     ? AudioFormat.ENCODING_PCM_FLOAT : AudioFormat.ENCODING_PCM_16BIT;
             // Same TX channel layout as the FT8 over: on a splitter cable the
@@ -3309,8 +3301,7 @@ public class FT8TransmitSignal {
             int minBuf = AudioTrack.getMinBufferSize(sampleRate,
                     layout.channelMask, encoding);
             int bufBytes = Math.max(targetBufBytes, minBuf > 0 ? minBuf : targetBufBytes);
-            track = new AudioTrack(tuneAttributes, tuneFormat, bufBytes,
-                    AudioTrack.MODE_STREAM, 0);
+            track = buildTxAudioTrack(tuneAttributes, tuneFormat, bufBytes, "TUNE");
             if (GeneralVariables.audioOutputDeviceId > 0) {
                 track.setPreferredDevice(tuneOutputDevice);
             } else {
@@ -3394,6 +3385,85 @@ public class FT8TransmitSignal {
         }
     }
 
+
+    /**
+     * TX audio attributes: deliberately AWAY from {@code USAGE_MEDIA}/{@code
+     * CONTENT_TYPE_MUSIC}. Real hardware (a QRP Labs QMX, confirmed against
+     * the two other apps known to drive it correctly) showed those
+     * attributes resolving to {@code AUDIO_STREAM_MUSIC}, which on this
+     * device got a fixed -6 dB cut from the platform's own volume-curve
+     * policy -- applied by the audio policy manager per volume-source,
+     * independent of the app's own volume index (confirmed happening at max
+     * index, 15/15) -- plus an OEM "Dolby Listener" enhancement effect
+     * inserted into the output's mix chain. {@code USAGE_VOICE_COMMUNICATION}
+     * resolves to a different volume-source/output on most Android audio
+     * HALs (the same reason VoIP and other "raw audio to a USB modem" apps
+     * commonly use it over {@code USAGE_MEDIA}), escaping the -6 dB curve
+     * for certain and plausibly the Dolby chain too if it causes routing to
+     * a different mixer thread than media audio uses. {@code FLAG_LOW_LATENCY}
+     * is requested as a secondary, independent measure -- see {@link
+     * #buildTxAudioTrack} -- though it alone would not have escaped either:
+     * the volume curve applies regardless of mixer path, and effects already
+     * attached to an output's session-0 (global mix) chain commonly make
+     * AudioFlinger deny the FAST path outright for that output, silently,
+     * with no error surfaced to the app.
+     *
+     * <p>{@code applyDefaultOutputRoutingOverride}'s existing Bluetooth-SCO
+     * steering (issue #759) forces an explicit {@code setPreferredDevice()}
+     * call regardless of usage, so it is not expected to be affected by this
+     * change -- but hasn't been re-verified against a live SCO link since.
+     */
+    private static AudioAttributes buildTxAudioAttributes() {
+        return new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
+                .build();
+    }
+
+    /**
+     * Builds the TX {@code AudioTrack} via {@link AudioTrack.Builder} (the
+     * legacy constructor has no equivalent) so {@link
+     * AudioTrack#PERFORMANCE_MODE_LOW_LATENCY} can be requested, and with a
+     * dedicated generated session id rather than the literal {@code 0} the
+     * legacy constructor used -- {@code 0} implicitly joins the output's
+     * global/master session, which is exactly the session (session-0) real
+     * hardware showed carrying the OEM Dolby effect; a dedicated session is
+     * less likely to inherit an effect chain already attached there.
+     *
+     * <p>Logs the ACTUAL granted performance mode: a denied low-latency
+     * request fails silently otherwise (no exception, no log visible to the
+     * app -- confirmed on real hardware that AudioFlinger can deny the FAST
+     * path per-output with zero signal to the caller either way).
+     */
+    private static AudioTrack buildTxAudioTrack(AudioAttributes attributes, AudioFormat format,
+                                                int bufBytes, String logTag) {
+        AudioTrack track = new AudioTrack.Builder()
+                .setAudioAttributes(attributes)
+                .setAudioFormat(format)
+                .setBufferSizeInBytes(bufBytes)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setSessionId(AudioManager.AUDIO_SESSION_ID_GENERATE)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                .build();
+        GeneralVariables.fileLog(logTag + ": AudioTrack performanceMode="
+                + performanceModeName(track.getPerformanceMode()));
+        return track;
+    }
+
+    /**
+     * Human-readable form of an {@code AudioTrack#getPerformanceMode()}
+     * result, for logs. Package-private: visible for {@code
+     * performanceModeNameTest}-style direct tests.
+     */
+    static String performanceModeName(int mode) {
+        switch (mode) {
+            case AudioTrack.PERFORMANCE_MODE_LOW_LATENCY: return "LOW_LATENCY (granted)";
+            case AudioTrack.PERFORMANCE_MODE_POWER_SAVING: return "POWER_SAVING";
+            case AudioTrack.PERFORMANCE_MODE_NONE: return "NONE (low-latency NOT granted)";
+            default: return "UNKNOWN(" + mode + ")";
+        }
+    }
 
     /**
      * Find AudioDeviceInfo by device ID.
