@@ -1,5 +1,6 @@
 package com.k1af.ft8af.rigs;
 
+import android.os.SystemClock;
 import android.util.Log;
 
 import com.k1af.ft8af.connector.BaseRigConnector;
@@ -149,6 +150,7 @@ public class HamlibRig extends BaseRig {
      * while still recovering promptly once the radio answers again.
      */
     private static final long OPEN_RETRY_BACKOFF_MS = 15_000;
+    /** {@link SystemClock#elapsedRealtime()} ms, NOT wall-clock: see {@link #ensureOpen()}. */
     private volatile long lastOpenFailureAtMs = 0;
 
     /**
@@ -156,7 +158,16 @@ public class HamlibRig extends BaseRig {
      * given when the last attempt failed. Pure/testable: {@code
      * ensureOpen()} itself touches native calls and a connector, so the
      * backoff decision is extracted here rather than timed with a real
-     * {@link System#currentTimeMillis()} + sleep in a test.
+     * clock + sleep in a test.
+     *
+     * @param nowMs          current time; callers must use {@link
+     *                       SystemClock#elapsedRealtime()}, not wall-clock
+     *                       time -- an NTP sync or manual clock change could
+     *                       otherwise stall reopening indefinitely (clock
+     *                       jumps back) or skip the backoff entirely (clock
+     *                       jumps forward)
+     * @param lastFailureAtMs the same clock's reading when the last attempt
+     *                        failed, or 0 if there hasn't been one
      */
     static boolean shouldAttemptOpen(long nowMs, long lastFailureAtMs, long backoffMs) {
         return lastFailureAtMs == 0 || nowMs - lastFailureAtMs >= backoffMs;
@@ -179,7 +190,7 @@ public class HamlibRig extends BaseRig {
         if (handle != 0) {
             return true;
         }
-        if (!shouldAttemptOpen(System.currentTimeMillis(), lastOpenFailureAtMs, OPEN_RETRY_BACKOFF_MS)) {
+        if (!shouldAttemptOpen(SystemClock.elapsedRealtime(), lastOpenFailureAtMs, OPEN_RETRY_BACKOFF_MS)) {
             return false;
         }
         BaseRigConnector c = getConnector();
@@ -199,7 +210,7 @@ public class HamlibRig extends BaseRig {
         long h = nativeApi.nativeCreate(modelId, sink);
         if (h == 0) {
             Log.w(TAG, "nativeCreate failed for hamlib model " + modelId);
-            lastOpenFailureAtMs = System.currentTimeMillis();
+            lastOpenFailureAtMs = SystemClock.elapsedRealtime();
             return false;
         }
         // Publish the handle BEFORE running the handshake: onReceiveData()
@@ -216,7 +227,7 @@ public class HamlibRig extends BaseRig {
         if (rc != 0) {
             Log.w(TAG, "nativeRigOpen failed for hamlib model " + modelId + " rc=" + rc);
             releaseHandle();
-            lastOpenFailureAtMs = System.currentTimeMillis();
+            lastOpenFailureAtMs = SystemClock.elapsedRealtime();
             return false;
         }
         Log.i(TAG, "hamlib model " + modelId + " opened");
