@@ -8,9 +8,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * Tests for [latestDecodeFrom], [qsoBannerSnr] and [bannerSnrLabel]: the QSO banner
- * and the QSO sheet's Signal card read the same decode, and the report we send is
- * labelled rather than shown as if it were the current signal (#953).
+ * Tests for the #953 banner SNR helpers: [latestDecodeFrom], [heardSnr],
+ * [sentReportOrNull], [qsoBannerSnr] and [bannerSnrLabel]. The QSO banner and the
+ * QSO sheet's Signal card read the same decode, and the report we sent is shown
+ * labelled, only once it has actually gone out.
  */
 @RunWith(RobolectricTestRunner::class)
 class QsoBannerSnrTest {
@@ -23,6 +24,8 @@ class QsoBannerSnrTest {
             this.snr = snr
             utcTime = utc
         }
+
+    // --- latestDecodeFrom ---
 
     @Test
     fun `latestDecodeFrom picks the newest decode from the station`() {
@@ -40,10 +43,15 @@ class QsoBannerSnrTest {
     }
 
     @Test
-    fun `latestDecodeFrom matches a hashed call bracketed or stripped`() {
-        val m = msg("<R8PD>", -7)
-        assertThat(latestDecodeFrom(listOf(m), "<R8PD>")).isSameInstanceAs(m)
-        assertThat(latestDecodeFrom(listOf(m), "R8PD")).isSameInstanceAs(m)
+    fun `latestDecodeFrom treats hashed and plain forms as the same station`() {
+        val hashed = msg("<R8PD>", -12, 1_000L)
+        val plain = msg("R8PD", -5, 2_000L)
+        val list = listOf(hashed, plain)
+
+        // Sheet (raw, bracketed key) and banner (stripped key) land on the same decode.
+        assertThat(latestDecodeFrom(list, "<R8PD>")).isSameInstanceAs(plain)
+        assertThat(latestDecodeFrom(list, "R8PD")).isSameInstanceAs(plain)
+        assertThat(latestDecodeFrom(listOf(hashed), "R8PD")).isSameInstanceAs(hashed)
     }
 
     @Test
@@ -51,6 +59,7 @@ class QsoBannerSnrTest {
         val list = listOf(msg("R8PD", -7))
         assertThat(latestDecodeFrom(list, null)).isNull()
         assertThat(latestDecodeFrom(list, "")).isNull()
+        assertThat(latestDecodeFrom(list, "<>")).isNull()
         assertThat(latestDecodeFrom(null, "R8PD")).isNull()
         assertThat(latestDecodeFrom(list, "W1AW")).isNull()
     }
@@ -60,38 +69,71 @@ class QsoBannerSnrTest {
         assertThat(latestDecodeFrom(listOf(msg(null, -7)), "R8PD")).isNull()
     }
 
+    // --- heardSnr ---
+
     @Test
-    fun `banner shows the latest heard SNR and labels a different sent report`() {
-        // The #953 case: sheet says -7, we locked in -14 as the report at QSO start.
-        val snr = qsoBannerSnr(msg("R8PD", -7), sentReport = -14)
-        assertThat(snr).isEqualTo(QsoBannerSnr(heard = -7, sent = -14))
+    fun `heardSnr prefers the latest decode`() {
+        assertThat(heardSnr(msg("R8PD", -7), fallback = -14)).isEqualTo(-7)
+    }
+
+    @Test
+    fun `heardSnr falls back when the station is not in the list`() {
+        assertThat(heardSnr(null, fallback = -9)).isEqualTo(-9)
+    }
+
+    @Test
+    fun `heardSnr falls back when the latest decode has no SNR`() {
+        assertThat(heardSnr(msg("R8PD", Ft8Message.SNR_UNKNOWN), fallback = -9)).isEqualTo(-9)
+    }
+
+    @Test
+    fun `heardSnr is null when nothing is known`() {
+        assertThat(heardSnr(null, fallback = null)).isNull()
+        assertThat(heardSnr(null, fallback = Ft8Message.SNR_UNKNOWN)).isNull()
+    }
+
+    // --- sentReportOrNull ---
+
+    @Test
+    fun `sentReportOrNull hides the not-sent sentinel`() {
+        assertThat(sentReportOrNull(-100)).isNull()
+    }
+
+    @Test
+    fun `sentReportOrNull maps an unknown SNR to the 0 that goes on the air`() {
+        assertThat(sentReportOrNull(Ft8Message.SNR_UNKNOWN)).isEqualTo(0)
+    }
+
+    @Test
+    fun `sentReportOrNull passes a real report through`() {
+        assertThat(sentReportOrNull(-14)).isEqualTo(-14)
+        assertThat(sentReportOrNull(5)).isEqualTo(5)
+    }
+
+    // --- qsoBannerSnr ---
+
+    @Test
+    fun `banner shows heard and labels a different sent report`() {
+        // The #953 case: sheet says -7, we sent -14.
+        assertThat(qsoBannerSnr(heard = -7, sent = -14)).isEqualTo(QsoBannerSnr(heard = -7, sent = -14))
     }
 
     @Test
     fun `sent report is dropped when it matches what we hear`() {
-        assertThat(qsoBannerSnr(msg("R8PD", -7), sentReport = -7))
-            .isEqualTo(QsoBannerSnr(heard = -7, sent = null))
+        assertThat(qsoBannerSnr(heard = -7, sent = -7)).isEqualTo(QsoBannerSnr(heard = -7, sent = null))
     }
 
     @Test
-    fun `sent report alone when the target is not in the decode list`() {
-        assertThat(qsoBannerSnr(null, sentReport = -14))
-            .isEqualTo(QsoBannerSnr(heard = null, sent = -14))
+    fun `sent report alone when nothing is heard`() {
+        assertThat(qsoBannerSnr(heard = null, sent = -14)).isEqualTo(QsoBannerSnr(heard = null, sent = -14))
     }
 
     @Test
-    fun `decode without an SNR gives no heard value`() {
-        assertThat(qsoBannerSnr(msg("R8PD", Ft8Message.SNR_UNKNOWN), sentReport = -14))
-            .isEqualTo(QsoBannerSnr(heard = null, sent = -14))
+    fun `no sent label before a report goes out`() {
+        assertThat(qsoBannerSnr(heard = -7, sent = null)).isEqualTo(QsoBannerSnr(heard = -7, sent = null))
     }
 
-    @Test
-    fun `unknown or missing sent report is dropped`() {
-        assertThat(qsoBannerSnr(msg("R8PD", -7), sentReport = Ft8Message.SNR_UNKNOWN))
-            .isEqualTo(QsoBannerSnr(heard = -7, sent = null))
-        assertThat(qsoBannerSnr(msg("R8PD", -7), sentReport = null))
-            .isEqualTo(QsoBannerSnr(heard = -7, sent = null))
-    }
+    // --- bannerSnrLabel ---
 
     @Test
     fun `bannerSnrLabel signs the value`() {
