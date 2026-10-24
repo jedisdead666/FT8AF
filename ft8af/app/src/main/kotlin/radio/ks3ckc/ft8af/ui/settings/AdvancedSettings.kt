@@ -598,7 +598,7 @@ fun AdvancedSettings(
                         },
                     )
                     SectionDivider()
-                    AudioChannelSelectRow(
+                    SegmentedSelectRow(
                         label = stringResource(R.string.settings_deep_decode),
                         description = stringResource(R.string.settings_deep_decode_desc),
                         optionLabels = listOf(

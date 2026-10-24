@@ -701,7 +701,7 @@ fun RadioAudioSettings(
                             micSource = mainViewModel.hamRecorder?.isMicSource() ?: true,
                             maxChannels = audioInputChannels,
                         )
-                        AudioChannelSelectRow(
+                        SegmentedSelectRow(
                             label = stringResource(R.string.settings_rx_channel),
                             description = stringResource(R.string.settings_rx_channel_desc),
                             optionLabels = listOf(
@@ -748,7 +748,7 @@ fun RadioAudioSettings(
                             deviceId = GeneralVariables.audioOutputDeviceId,
                             maxChannels = audioOutputChannels,
                         )
-                        AudioChannelSelectRow(
+                        SegmentedSelectRow(
                             label = stringResource(R.string.settings_tx_channel),
                             description = stringResource(R.string.settings_tx_channel_desc),
                             optionLabels = listOf(
@@ -1249,10 +1249,10 @@ private fun AudioChannelRowGate.noteRes(): Int =
     }
 
 /**
- * A three-position segmented control for a small int-valued setting, generic
- * over [optionLabels] rather than tied to audio channels despite the name —
- * reused as-is for decode depth in [AdvancedSettings] (`internal`, not
- * `private`, for exactly that cross-file reuse). Originally built for, and
+ * A segmented control for a small int-valued setting — N options (two-plus),
+ * generic over [optionLabels], not tied to audio at all despite living in
+ * this file. Reused as-is for decode depth in [AdvancedSettings] (`internal`,
+ * not `private`, for exactly that cross-file reuse). Originally built for, and
  * still used twice for, the audio channel selector: which side of a stereo
  * path the app uses, once for receive (Mix / Left / Right) and once for
  * transmit (Both / Left / Right) — because a splitter cable, a dual-receiver
@@ -1272,7 +1272,7 @@ private fun AudioChannelRowGate.noteRes(): Int =
  * enabled.
  */
 @Composable
-internal fun AudioChannelSelectRow(
+internal fun SegmentedSelectRow(
     label: String,
     description: String,
     optionLabels: List<Pair<Int, String>>,
