@@ -276,7 +276,7 @@ public class FT8SignalListener {
                 }
 
 
-                if (GeneralVariables.deepDecodeMode) {// enter deep decode mode
+                if (DecodeDepth.runsDeepPass(GeneralVariables.decodeDepth)) {// BALANCED or DEEP
                     //float[] newSignal=tempData;
                     msgs = runDecode(ft8Decoder, utc, true, mode,
                             DeepDecodeBudget.NO_DEADLINE, a91List, null);
@@ -294,7 +294,8 @@ public class FT8SignalListener {
                     // deep work and pushed the late pass's start past the next slot's
                     // early decode, whose first gate contention then aborted the late
                     // candidate scan almost every cycle. See LateDecode.deepLoopRunsOnEarlyBuffer.
-                    if (LateDecode.deepLoopRunsOnEarlyBuffer(lateHandoff)) {
+                    if (LateDecode.deepLoopRunsOnEarlyBuffer(lateHandoff)
+                            && DecodeDepth.runsSubtractRedecodeLoop(GeneralVariables.decodeDepth)) {
                         final long deepDecodeBudgetMs = mode.deepDecodeBudgetMillis();
                         // Budget the subtract-and-redecode loop by ITS OWN elapsed time, not the total
                         // decode time. On a slow device the initial fast + first deep pass can already
@@ -385,27 +386,30 @@ public class FT8SignalListener {
             final LateDecode.LateAbort lateAbort = new LateDecode.LateAbort();
             deliverLateMessages(utc, allMsg,
                     runDecode(lateDecoder, utc, false, mode, deadline, a91List, lateAbort));
-            if (GeneralVariables.deepDecodeMode && !lateAbort.tripped()) {
+            if (DecodeDepth.runsDeepPass(GeneralVariables.decodeDepth) && !lateAbort.tripped()) {
                 ArrayList<Ft8Message> msgs =
                         runDecode(lateDecoder, utc, true, mode, deadline, a91List, lateAbort);
                 deliverLateMessages(utc, allMsg, msgs);
-                // Subtract-and-redecode on the full buffer. Same convergence rule as the
-                // early-buffer loop this replaces (do/while: at least one subtraction
-                // round even when the deep pass above surfaced nothing new — subtraction
-                // is what uncovers weak signals UNDER the already-decoded strong ones):
-                // keep going while a pass still yields NEW messages (deliverLateMessages
-                // strips already-delivered ones from msgs in place) and the deadline
-                // hasn't passed. a91List holds the previous pass's decodes — exactly
-                // what the next subtraction removes.
-                do {
-                    if (lateAbort.tripped()
-                            || DeepDecodeBudget.passExpired(deadline, System.currentTimeMillis())) {
-                        break;
-                    }
-                    subtractDecode(lateDecoder, a91List, fromSource);
-                    msgs = runDecode(lateDecoder, utc, true, mode, deadline, a91List, lateAbort);
-                    deliverLateMessages(utc, allMsg, msgs);
-                } while (!msgs.isEmpty());
+                // Subtract-and-redecode on the full buffer (DEEP only — BALANCED stops
+                // after the deep pass above). Same convergence rule as the early-buffer
+                // loop this replaces (do/while: at least one subtraction round even when
+                // the deep pass above surfaced nothing new — subtraction is what uncovers
+                // weak signals UNDER the already-decoded strong ones): keep going while a
+                // pass still yields NEW messages (deliverLateMessages strips
+                // already-delivered ones from msgs in place) and the deadline hasn't
+                // passed. a91List holds the previous pass's decodes — exactly what the
+                // next subtraction removes.
+                if (DecodeDepth.runsSubtractRedecodeLoop(GeneralVariables.decodeDepth)) {
+                    do {
+                        if (lateAbort.tripped()
+                                || DeepDecodeBudget.passExpired(deadline, System.currentTimeMillis())) {
+                            break;
+                        }
+                        subtractDecode(lateDecoder, a91List, fromSource);
+                        msgs = runDecode(lateDecoder, utc, true, mode, deadline, a91List, lateAbort);
+                        deliverLateMessages(utc, allMsg, msgs);
+                    } while (!msgs.isEmpty());
+                }
             }
         } finally {
             deleteDecoder(lateDecoder, fromSource);
