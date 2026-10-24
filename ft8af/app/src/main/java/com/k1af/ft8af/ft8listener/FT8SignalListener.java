@@ -296,6 +296,7 @@ public class FT8SignalListener {
                     // candidate scan almost every cycle. See LateDecode.deepLoopRunsOnEarlyBuffer.
                     if (LateDecode.deepLoopRunsOnEarlyBuffer(lateHandoff)
                             && DecodeDepth.runsSubtractRedecodeLoop(GeneralVariables.decodeDepth)) {
+                        Log.d(TAG, "early subtract-and-redecode loop: running (decodeDepth=DEEP)");
                         final long deepDecodeBudgetMs = mode.deepDecodeBudgetMillis();
                         // Budget the subtract-and-redecode loop by ITS OWN elapsed time, not the total
                         // decode time. On a slow device the initial fast + first deep pass can already
@@ -319,6 +320,12 @@ public class FT8SignalListener {
                             }
 
                         } while (msgs.size() > 0 );
+                    } else if (LateDecode.deepLoopRunsOnEarlyBuffer(lateHandoff)) {
+                        // Deep pass ran (we're inside the runsDeepPass branch), but the SIC
+                        // loop didn't -- decodeDepth must be BALANCED (DEEP always satisfies
+                        // runsSubtractRedecodeLoop). Logged explicitly since a quiet band
+                        // gives no other on-device signal that BALANCED actually skips this.
+                        Log.d(TAG, "early subtract-and-redecode loop: skipped (decodeDepth=BALANCED)");
                     }
 
                 }
@@ -400,6 +407,7 @@ public class FT8SignalListener {
                 // passed. a91List holds the previous pass's decodes — exactly what the
                 // next subtraction removes.
                 if (DecodeDepth.runsSubtractRedecodeLoop(GeneralVariables.decodeDepth)) {
+                    Log.d(TAG, "late subtract-and-redecode loop: running (decodeDepth=DEEP)");
                     do {
                         if (lateAbort.tripped()
                                 || DeepDecodeBudget.passExpired(deadline, System.currentTimeMillis())) {
@@ -409,6 +417,11 @@ public class FT8SignalListener {
                         msgs = runDecode(lateDecoder, utc, true, mode, deadline, a91List, lateAbort);
                         deliverLateMessages(utc, allMsg, msgs);
                     } while (!msgs.isEmpty());
+                } else {
+                    // Deep pass ran (we're inside the runsDeepPass branch), but the SIC loop
+                    // didn't -- decodeDepth must be BALANCED. See the matching early-buffer
+                    // log for why this is logged explicitly rather than inferred from timing.
+                    Log.d(TAG, "late subtract-and-redecode loop: skipped (decodeDepth=BALANCED)");
                 }
             }
         } finally {
