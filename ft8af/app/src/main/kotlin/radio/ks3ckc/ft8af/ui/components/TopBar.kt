@@ -12,7 +12,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import radio.ks3ckc.ft8af.theme.TextMuted
@@ -25,9 +27,9 @@ fun TopBar(
     actions: @Composable (RowScope.() -> Unit)? = null,
     // Overrides the default Text(title) rendering below, for a screen whose
     // title is itself an interactive control (e.g. Decode's tappable
-    // band/mode label) rather than plain static text. [title] is still
-    // required in that case, for accessibility/semantics fallbacks that may
-    // read it, even though it isn't rendered directly.
+    // band/mode label) rather than plain static text. [title] itself goes
+    // unused in that case -- it's the plain-text fallback for every OTHER
+    // caller, not a hidden accessibility backstop for this one.
     titleContent: @Composable (() -> Unit)? = null,
 ) {
     Row(
@@ -37,7 +39,14 @@ fun TopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
     ) {
-        Column {
+        // weight(1f), not an unconstrained Column: a wide titleContent (e.g.
+        // ClickableTopBarTitle's band/mode label, which can run to "14.074 MHz
+        // · 20m · FT8") would otherwise push `actions` past the row's own
+        // width instead of yielding space to it -- confirmed on a real 1080px
+        // phone, where the trailing action icons were pushed fully off-screen.
+        // Harmless for every other caller's short plain title, which never
+        // comes close to filling the space this leaves it.
+        Column(modifier = Modifier.weight(1f)) {
             if (titleContent != null) {
                 titleContent()
             } else {
@@ -79,7 +88,7 @@ fun ClickableTopBarTitle(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.clickable(onClick = onClick, role = Role.Button),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -92,6 +101,11 @@ fun ClickableTopBarTitle(
             ),
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            // Let the chevron keep its own space; the label is the part that
+            // should give way first if the two still don't both fit after
+            // TopBar's weight(1f) has already constrained this whole row.
+            modifier = Modifier.weight(1f, fill = false),
         )
         FT8AFIcons.ChevronDown(size = 16.dp, color = TextMuted, strokeWidth = 2f)
     }
