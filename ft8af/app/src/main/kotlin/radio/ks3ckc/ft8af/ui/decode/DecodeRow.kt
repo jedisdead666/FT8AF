@@ -172,8 +172,17 @@ fun DecodeRow(
                     letterSpacing = 0.02.sp,
                 )
 
-                // Grid locator
-                val grid = message.maidenGrid ?: ""
+                // Grid locator, or whatever else the message's own third field held
+                // (report, RR73, 73) when it wasn't grid-shaped -- see
+                // secondaryFieldText. Free-text messages have no callsignFrom to
+                // show this next to and can carry a much longer extraInfo, so
+                // they're excluded rather than dumping the whole free-text body
+                // into this narrow slot.
+                val grid = if (message.callsignFrom.isNullOrEmpty()) {
+                    ""
+                } else {
+                    secondaryFieldText(message.maidenGrid, message.extraInfo)
+                }
                 if (grid.isNotEmpty()) {
                     Text(
                         text = grid,
@@ -293,6 +302,32 @@ fun DecodeRow(
  */
 internal fun decodeRowDimAlpha(isInQsoWithOther: Boolean): Float =
     if (isInQsoWithOther) 0.8f else 1f
+
+/**
+ * The text to show next to the callsign for the message's own exchanged
+ * third field -- a grid locator ("EM98"), or whatever else that field held
+ * ("RR73", "73", a signal report like "-04"/"R+10") when it isn't a grid.
+ *
+ * <p>[maidenGrid] is only ever populated by the native decoder when the
+ * third field matches a strict grid shape (2 letters A-R, 2 digits -- see
+ * `ft8_looks_like_grid` in ft8_decode_jni.cpp); anything else (a report
+ * exchange, which is most of a real QSO) leaves it blank, with the actual
+ * value sitting unused in [extraInfo] instead -- visible only on the raw
+ * message text line, which compact mode hides entirely. Confirmed on real
+ * hardware: a signal-report message's row showed nothing in this slot in
+ * compact mode, next to CQ/RR73 rows that showed fine (RR73 happens to
+ * match the grid-shape check by coincidence, not because it's a grid).
+ *
+ * <p>Deliberately not applied to every message type -- a blank [maidenGrid]
+ * alongside a long free-text [extraInfo] (message type FREE_TEXT, which
+ * also has no callsigns to show it next to) would dump the whole free-text
+ * body into this narrow slot; callers should gate this on there being a
+ * real callsignFrom if that matters to them. For the normal case this
+ * exists for (a station-to-station exchange with real callsigns on both
+ * sides), extraInfo is always short.
+ */
+internal fun secondaryFieldText(maidenGrid: String?, extraInfo: String?): String =
+    maidenGrid?.takeIf { it.isNotEmpty() } ?: extraInfo?.trim().orEmpty()
 
 private fun formatTimeAgo(utcMillis: Long, nowMillis: Long): String {
     val diff = ((nowMillis - utcMillis) / 1000L).coerceAtLeast(0)
