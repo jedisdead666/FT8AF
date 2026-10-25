@@ -225,7 +225,7 @@ fun DecodeRow(
                             MetaText(headingText)
                         }
                     }
-                    Box(modifier = Modifier.width(64.dp), contentAlignment = Alignment.CenterEnd) {
+                    Box(modifier = Modifier.width(80.dp), contentAlignment = Alignment.CenterEnd) {
                         if (hoistedStatus != null) {
                             StatusPill(status = hoistedStatus, compact = true)
                         }
