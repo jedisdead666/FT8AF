@@ -474,12 +474,13 @@ internal const val COMPACT_LABEL_CHIP_DP = 58
 
 /**
  * Width the compact row keeps for its message text before giving up any
- * more metadata -- about 23 monospace characters at 12sp (~7.6dp each,
+ * more metadata -- about 21 monospace characters at 12sp (~7.6dp each,
  * measured on device), enough for a full standard frame including a hashed
  * DXpedition call such as "<VP9/AH0CO> K5YT R-12". The message is the row's
- * primary content; the metadata cells are what give way.
+ * primary content; the metadata cells are what give way. Sized no larger
+ * than that so a ~384dp phone still keeps DT next to the full pill.
  */
-internal const val COMPACT_MIN_MESSAGE_DP = 176
+internal const val COMPACT_MIN_MESSAGE_DP = 160
 
 /**
  * The compact row's fixed-width metadata columns, in display order. Distance

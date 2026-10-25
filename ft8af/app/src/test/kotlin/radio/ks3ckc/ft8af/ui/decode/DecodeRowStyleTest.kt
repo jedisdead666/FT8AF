@@ -153,14 +153,19 @@ class DecodeRowStyleTest {
 
     @Test
     fun compactRowLayout_givesUpMetadataBeforeThePillLabel() {
-        // motorola edge 2022: Hz goes; DT and the full pill stay.
+        // motorola edge 2022: everything fits -- SNR, Hz, DT and the full pill.
         val moto = compactRowLayout(availableDp = 383f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
-        assertThat(moto.columns).containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DT).inOrder()
+        assertThat(moto.columns)
+            .containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.FREQ, CompactMetaColumn.DT).inOrder()
         assertThat(moto.pillDotOnly).isFalse()
-        // Galaxy A32: Hz and DT go; the full pill label still fits.
+        // Galaxy A32: only Hz goes; DT and the full pill label stay (user choice).
         val a32 = compactRowLayout(availableDp = 335f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
-        assertThat(a32.columns).containsExactly(CompactMetaColumn.SNR)
+        assertThat(a32.columns).containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DT).inOrder()
         assertThat(a32.pillDotOnly).isFalse()
+        // 360dp phone: DT goes too, still with the full pill.
+        val small = compactRowLayout(availableDp = 311f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
+        assertThat(small.columns).containsExactly(CompactMetaColumn.SNR)
+        assertThat(small.pillDotOnly).isFalse()
         // Very narrow: the pill shrinks to its dot last; SNR always stays.
         val tiny = compactRowLayout(availableDp = 250f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
         assertThat(tiny.columns).containsExactly(CompactMetaColumn.SNR)
