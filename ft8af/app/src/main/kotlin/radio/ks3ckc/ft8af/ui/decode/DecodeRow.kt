@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -157,17 +158,22 @@ fun DecodeRow(
         val hoistedStatus = resolveQsoStatus(message)
         val hoistedDistanceText = computeDistanceText(message)
         val hoistedAgoText = if (nowMillis > 0L) formatTimeAgo(message.utcTime, nowMillis) else ""
+        // The canonical decoded frame (e.g. "K1ABC W9XYZ EN37") -- same text
+        // the expanded view's second line shows. Compact uses this instead of
+        // a derived callsign+grid snippet so free-text/telemetry messages
+        // (which have no parsed callsignFrom) aren't left blank.
+        val hoistedMsgText = message.getMessageText()?.trim().orEmpty()
 
         Column(modifier = Modifier.weight(1f)) {
             if (compact) {
-                // Single-line compact row: callsign, grid/report, signal metadata,
-                // and the status pill all share one row -- user request, the
-                // start of the wider "one line per decode" density goal. CQ/TO
-                // YOU are dropped here specifically because they'd duplicate the
-                // status pill (resolveQsoStatus already returns QsoStatus.CQ /
-                // PENDING for exactly those two cases); CALLING is kept, since
-                // isTarget isn't one of resolveQsoStatus's inputs and the pill
-                // can't show it.
+                // Single-line compact row: the canonical message text (same
+                // content as the expanded view's second line) plus its third
+                // line's signal metadata, minus the signal bargraph and the
+                // "ago" time -- user request, merging those two lines into one
+                // instead of showing a derived callsign+grid snippet. CALLING
+                // and the status pill are additive markers carried over from
+                // the expanded view's top line; they aren't part of either
+                // merged line so they keep their own meaning here.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -177,22 +183,16 @@ fun DecodeRow(
                         MessageLabel(text = stringResource(R.string.decode_label_calling), color = Target, bgColor = TargetSoft)
                     }
                     Text(
-                        text = message.callsignFrom ?: "",
-                        color = when {
-                            isToMe -> Signal
-                            isTarget -> Target
-                            else -> TextPrimary
-                        },
+                        text = hoistedMsgText,
+                        color = TextMuted,
                         fontFamily = GeistMonoFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
+                        fontSize = 12.sp,
                         letterSpacing = 0.02.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
-                    if (hoistedGrid.isNotEmpty()) {
-                        Text(text = hoistedGrid, color = TextFaint, fontFamily = GeistMonoFamily, fontSize = 11.sp)
-                    }
-
-                    Spacer(modifier = Modifier.weight(1f))
 
                     // Fixed-width slots (reserved even when the cell's content is
                     // absent, e.g. no distance without a grid, no pill without a
@@ -200,15 +200,17 @@ fun DecodeRow(
                     // every row instead of zig-zagging with whichever optional
                     // cells happen to be present -- real-device measurement
                     // showed dB's start x varying by 300+ px row to row otherwise.
+                    // Unit-label text (dB/Hz/DT) is dropped here to save width;
+                    // the expanded view still spells them out.
+                    Box(modifier = Modifier.width(28.dp), contentAlignment = Alignment.CenterEnd) {
+                        MetaText(if (message.hasSnr()) "${message.snr}" else "--")
+                    }
                     Box(modifier = Modifier.width(36.dp), contentAlignment = Alignment.CenterEnd) {
-                        MetaText(if (message.hasSnr()) "${message.snr} dB" else "-- dB")
+                        MetaText("${message.getFreq_hz()}")
                     }
-                    Box(modifier = Modifier.width(48.dp), contentAlignment = Alignment.CenterEnd) {
-                        MetaText("${message.getFreq_hz()} Hz")
-                    }
-                    Box(modifier = Modifier.width(48.dp), contentAlignment = Alignment.CenterEnd) {
+                    Box(modifier = Modifier.width(32.dp), contentAlignment = Alignment.CenterEnd) {
                         MetaText(
-                            text = "DT ${formatDecodeDt(message.time_sec)}",
+                            text = formatDecodeDt(message.time_sec),
                             color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
                         )
                     }
@@ -217,7 +219,13 @@ fun DecodeRow(
                             MetaText(hoistedDistanceText)
                         }
                     }
-                    Box(modifier = Modifier.width(56.dp), contentAlignment = Alignment.CenterEnd) {
+                    if (GeneralVariables.showBeamHeading) {
+                        val headingText = computeBeamHeadingText(message)
+                        if (headingText.isNotEmpty()) {
+                            MetaText(headingText)
+                        }
+                    }
+                    Box(modifier = Modifier.width(64.dp), contentAlignment = Alignment.CenterEnd) {
                         if (hoistedStatus != null) {
                             StatusPill(status = hoistedStatus, compact = true)
                         }
@@ -461,6 +469,9 @@ private fun MetaText(
         fontFamily = GeistMonoFamily,
         fontSize = 10.5.sp,
         letterSpacing = 0.02.sp,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
     )
 }
 
