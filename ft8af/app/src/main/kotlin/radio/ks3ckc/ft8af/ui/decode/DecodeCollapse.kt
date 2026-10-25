@@ -234,6 +234,16 @@ internal fun showDecodedCountInSubtitle(sortMode: DecodeSortMode): Boolean =
  * group (its own slot's real decode count), which is correct regardless of
  * whether that group happens to be the live, still-accumulating cycle or an
  * older one.
+ *
+ * <p>That per-group count ([groupSize] over the COLLAPSED list) is itself
+ * post-filter when a decode filter chip ("CQ Calls", "Needed", ...) is
+ * active -- it's "N stations [matching the current filter]", not every raw
+ * decode that slot produced. Confirmed on real hardware against the
+ * decoder's own per-pass log counts. Worded as "stations" rather than
+ * "decoded" in the UI string specifically because of this (see
+ * `decode_time_group_utc_with_count`) -- it's never wrong, just scoped to
+ * whatever the operator is currently filtering for, same as the row list
+ * itself.
  */
 internal fun showsDecodedCountOnDivider(sortMode: DecodeSortMode, itemIndex: Int): Boolean =
     sortMode == DecodeSortMode.LAST_HEARD && itemIndex == 0
