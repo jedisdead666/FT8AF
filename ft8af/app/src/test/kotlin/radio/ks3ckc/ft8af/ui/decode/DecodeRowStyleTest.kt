@@ -53,4 +53,24 @@ class DecodeRowStyleTest {
     fun secondaryFieldText_trimsExtraInfo() {
         assertThat(secondaryFieldText(maidenGrid = "", extraInfo = "  -04  ")).isEqualTo("-04")
     }
+
+    @Test
+    fun secondaryFieldText_leavesLongContestExchangesOnTheMessageLine() {
+        // These carry a callsignFrom too, but would wrap or crowd the narrow slot.
+        assertThat(secondaryFieldText(maidenGrid = "", extraInfo = "TU; R 579 MA")).isEmpty()
+        assertThat(secondaryFieldText(maidenGrid = "", extraInfo = "R 2A EMA")).isEmpty()
+        assertThat(secondaryFieldText(maidenGrid = null, extraInfo = "TU; R+05 EM")).isEmpty()
+        // A real grid still wins whatever extraInfo holds.
+        assertThat(secondaryFieldText(maidenGrid = "EM15", extraInfo = "TU; R 579 MA")).isEqualTo("EM15")
+    }
+
+    @Test
+    fun isShortExchangeToken_acceptsOnlyStandardExchangeTokens() {
+        for (token in listOf("-04", "+10", "R-09", "R+10", "RRR", "RR73", "73")) {
+            assertThat(isShortExchangeToken(token)).isTrue()
+        }
+        for (token in listOf("", "R 579", "2A EMA", "TU;", "-04 5", "RR73;")) {
+            assertThat(isShortExchangeToken(token)).isFalse()
+        }
+    }
 }

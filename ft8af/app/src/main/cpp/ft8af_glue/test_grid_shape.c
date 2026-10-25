@@ -53,7 +53,7 @@ int main(void)
     CHECK(!ft8af_looks_like_grid(""));
     CHECK(!ft8af_looks_like_grid("EM9")); // too short
     CHECK(!ft8af_looks_like_grid("EM980")); // too long
-    CHECK(!ft8af_looks_like_grid("em98")); // lowercase letters outside A-R..R-R range
+    CHECK(!ft8af_looks_like_grid("em98")); // lowercase: the field letters must be uppercase A-R
     CHECK(!ft8af_looks_like_grid("SA12")); // 'S' is outside A-R
     CHECK(!ft8af_looks_like_grid("AAAA")); // digits missing
 

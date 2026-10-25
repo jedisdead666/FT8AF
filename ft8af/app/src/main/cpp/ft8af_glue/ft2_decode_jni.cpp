@@ -165,7 +165,6 @@ static void ft2_set_string(JNIEnv* env, jobject msg, jfieldID fid, const char* s
     env->DeleteLocalRef(js);
 }
 
-
 static void ft2_set_call_hashes(JNIEnv* env, jobject msg, const char* call,
                                 jfieldID f10, jfieldID f12, jfieldID f22)
 {
