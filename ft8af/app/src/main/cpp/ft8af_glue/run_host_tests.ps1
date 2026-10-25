@@ -363,6 +363,22 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Compile failed (test_feed)." }
 $feedExit = $LASTEXITCODE
 
 # ---------------------------------------------------------------------------
+# Grid-shape tests: the shared check (ft8_grid_shape.h) behind a real-device
+# finding -- "RR73" (the protocol's reply token, never a locator) passed the
+# old per-file ft8_looks_like_grid/ft2_looks_like_grid checks by coincidence,
+# so every RR73 reply earned a false "NEW GRID" badge. Header-only, no
+# ft8_lib deps.
+# ---------------------------------------------------------------------------
+$srcGridShape = Join-Path $here "test_grid_shape.c"
+$outGridShape = Join-Path $env:TEMP "ft8_grid_shape_test.exe"
+
+& $Clang @common $srcGridShape -o $outGridShape
+if ($LASTEXITCODE -ne 0) { Write-Error "Compile failed (test_grid_shape)." }
+
+& $outGridShape
+$gridShapeExit = $LASTEXITCODE
+
+# ---------------------------------------------------------------------------
 # NOTE: test_hamlib_feed.c (hamlib_feed.h — the nativeFeedFromRig write loop) is
 # intentionally NOT built here. Both it and the code it covers are POSIX-only:
 # hamlib_jni.cpp uses BSD sockets + pthreads and only compiles for Android
@@ -385,4 +401,5 @@ if ($osdExit -ne 0) { exit $osdExit }
 if ($fineExit -ne 0) { exit $fineExit }
 if ($xslotExit -ne 0) { exit $xslotExit }
 if ($gfskLenExit -ne 0) { exit $gfskLenExit }
-exit $feedExit
+if ($feedExit -ne 0) { exit $feedExit }
+exit $gridShapeExit
