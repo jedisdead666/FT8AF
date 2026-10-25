@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.k1af.ft8af.Ft8Message
 import com.k1af.ft8af.R
 import com.k1af.ft8af.GeneralVariables
@@ -164,12 +168,13 @@ fun DecodeRow(
                 // merged line so they keep their own meaning here.
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                     val labels = decodeRowLabels(isTarget, isCQ, isToMe, compact = true)
-                    // Which metadata columns fit next to a readable message on
-                    // this width (see compactMetaColumns); a narrow phone drops
-                    // the lowest-priority columns instead of starving the text.
-                    val columns = compactMetaColumns(
+                    // Which trailing cells fit next to a readable message on this
+                    // width (see compactRowLayout); a narrow phone gives up
+                    // metadata, then the pill's label, instead of the text.
+                    val layout = compactRowLayout(
                         availableDp = maxWidth.value,
                         leadingDp = labels.size * COMPACT_LABEL_CHIP_DP,
+                        hasOperatorGrid = !GeneralVariables.getMyMaidenheadGrid().isNullOrEmpty(),
                         showHeading = GeneralVariables.showBeamHeading,
                     )
                     val emphasis = compactMessageEmphasis(isToMe = isToMe, isTarget = isTarget)
@@ -206,7 +211,7 @@ fun DecodeRow(
                         // showed dB's start x varying by 300+ px row to row
                         // otherwise. Unit labels are dropped here to save width;
                         // the expanded view still spells them out.
-                        for (column in columns) {
+                        for (column in layout.columns) {
                             Box(modifier = Modifier.width(column.widthDp.dp), contentAlignment = Alignment.CenterEnd) {
                                 when (column) {
                                     CompactMetaColumn.SNR ->
@@ -227,9 +232,13 @@ fun DecodeRow(
                                 }
                             }
                         }
-                        Box(modifier = Modifier.width(COMPACT_PILL_DP.dp), contentAlignment = Alignment.CenterEnd) {
+                        Box(modifier = Modifier.width(layout.pillSlotDp.dp), contentAlignment = Alignment.CenterEnd) {
                             if (hoistedStatus != null) {
-                                StatusPill(status = hoistedStatus, compact = true)
+                                if (layout.pillDotOnly) {
+                                    StatusDot(hoistedStatus)
+                                } else {
+                                    StatusPill(status = hoistedStatus, compact = true)
+                                }
                             }
                         }
                     }
@@ -457,18 +466,23 @@ internal fun decodeSnrText(hasSnr: Boolean, snr: Int, withUnit: Boolean): String
 /** Gap between items in the compact row. */
 internal const val COMPACT_GAP_DP = 8
 
-/** Fixed width of the compact row's trailing status-pill slot. */
+/** Fixed width of the compact row's trailing status-pill slot, full label. */
 internal const val COMPACT_PILL_DP = 80
+
+/** Width of the pill slot when only the pill's colored dot is shown. */
+internal const val COMPACT_PILL_DOT_DP = 16
 
 /** Width a label chip (e.g. CALLING) takes in the compact row, gap included. */
 internal const val COMPACT_LABEL_CHIP_DP = 58
 
 /**
- * Width the compact row's message text keeps before metadata columns are
- * dropped -- about 16 monospace characters at 12sp, enough for a standard
- * frame such as "K1ABC W9XYZ EN37".
+ * Width the compact row keeps for its message text before giving up any
+ * more metadata -- about 23 monospace characters at 12sp (~7.6dp each,
+ * measured on device), enough for a full standard frame including a hashed
+ * DXpedition call such as "<VP9/AH0CO> K5YT R-12". The message is the row's
+ * primary content; the metadata cells are what give way.
  */
-internal const val COMPACT_MIN_MESSAGE_DP = 120
+internal const val COMPACT_MIN_MESSAGE_DP = 176
 
 /** The compact row's fixed-width metadata columns, in display order. */
 internal enum class CompactMetaColumn(val widthDp: Int) {
@@ -480,35 +494,58 @@ internal enum class CompactMetaColumn(val widthDp: Int) {
 }
 
 /**
- * The metadata columns the compact row shows on a row [availableDp] wide,
- * in display order. Every row on a given screen gets the same set, so the
- * columns line up. When they don't all fit next to [COMPACT_MIN_MESSAGE_DP]
- * of message text (after [leadingDp] of label chips and the pill slot),
- * columns are dropped lowest-priority first: beam heading, audio frequency,
- * DT, then distance. SNR always stays. Without this, a 360dp phone left the
- * message about 45dp -- or nothing once a CALLING chip was shown.
+ * How the compact row lays out its trailing cells: which metadata [columns]
+ * to show (in display order) and whether the status pill shows its full
+ * label or only its colored dot ([pillDotOnly]).
  */
-internal fun compactMetaColumns(
+internal data class CompactRowLayout(
+    val columns: List<CompactMetaColumn>,
+    val pillDotOnly: Boolean,
+) {
+    val pillSlotDp: Int get() = if (pillDotOnly) COMPACT_PILL_DOT_DP else COMPACT_PILL_DP
+}
+
+/**
+ * The compact row's layout for a row [availableDp] wide. Every row on a
+ * given screen gets the same layout, so the columns line up.
+ *
+ * The message text is the row's primary content, so the trailing cells give
+ * way until it keeps [COMPACT_MIN_MESSAGE_DP] (after [leadingDp] of label
+ * chips), in this order: beam heading, audio frequency, DT, the pill's label
+ * (down to its colored dot), then distance. SNR always stays. Distance and
+ * beam heading are left out entirely when [hasOperatorGrid] is false: without
+ * the operator's grid no row can show them, and a reserved empty column was
+ * what truncated messages on a fresh install.
+ */
+internal fun compactRowLayout(
     availableDp: Float,
     leadingDp: Int,
+    hasOperatorGrid: Boolean,
     showHeading: Boolean,
-): List<CompactMetaColumn> {
-    val columns = CompactMetaColumn.values()
-        .filter { it != CompactMetaColumn.HEADING || showHeading }
-        .toMutableList()
-    val dropOrder = listOf(
-        CompactMetaColumn.HEADING,
-        CompactMetaColumn.FREQ,
-        CompactMetaColumn.DT,
-        CompactMetaColumn.DISTANCE,
-    )
+): CompactRowLayout {
+    val columns = CompactMetaColumn.values().filter {
+        when (it) {
+            CompactMetaColumn.DISTANCE -> hasOperatorGrid
+            CompactMetaColumn.HEADING -> hasOperatorGrid && showHeading
+            else -> true
+        }
+    }.toMutableList()
+    var pillDotOnly = false
     fun required(): Int = leadingDp + COMPACT_MIN_MESSAGE_DP +
-        columns.sumOf { it.widthDp + COMPACT_GAP_DP } + COMPACT_GAP_DP + COMPACT_PILL_DP
-    for (drop in dropOrder) {
+        columns.sumOf { it.widthDp + COMPACT_GAP_DP } + COMPACT_GAP_DP +
+        (if (pillDotOnly) COMPACT_PILL_DOT_DP else COMPACT_PILL_DP)
+    val steps = listOf<() -> Unit>(
+        { columns.remove(CompactMetaColumn.HEADING) },
+        { columns.remove(CompactMetaColumn.FREQ) },
+        { columns.remove(CompactMetaColumn.DT) },
+        { pillDotOnly = true },
+        { columns.remove(CompactMetaColumn.DISTANCE) },
+    )
+    for (step in steps) {
         if (required() <= availableDp) break
-        columns.remove(drop)
+        step()
     }
-    return columns
+    return CompactRowLayout(columns, pillDotOnly)
 }
 
 /**
@@ -559,6 +596,23 @@ private fun resolveLocationText(
         country == "United Kingdom" -> "UK"
         else -> country
     }
+}
+
+/**
+ * The status pill reduced to its colored dot, for compact rows too narrow for
+ * the label. The label stays available to TalkBack; expanded view and the QSO
+ * sheet still show it in full.
+ */
+@Composable
+private fun StatusDot(status: QsoStatus) {
+    val label = stringResource(status.labelRes)
+    Box(
+        modifier = Modifier
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(status.color)
+            .semantics { contentDescription = label },
+    )
 }
 
 @Composable
