@@ -194,17 +194,33 @@ fun DecodeRow(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    MetaText(if (message.hasSnr()) "${message.snr} dB" else "-- dB")
-                    MetaText("${message.getFreq_hz()} Hz")
-                    MetaText(
-                        text = "DT ${formatDecodeDt(message.time_sec)}",
-                        color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
-                    )
-                    if (hoistedDistanceText.isNotEmpty()) {
-                        MetaText(hoistedDistanceText)
+                    // Fixed-width slots (reserved even when the cell's content is
+                    // absent, e.g. no distance without a grid, no pill without a
+                    // status) so dB/Hz/DT/distance/pill start at the same x on
+                    // every row instead of zig-zagging with whichever optional
+                    // cells happen to be present -- real-device measurement
+                    // showed dB's start x varying by 300+ px row to row otherwise.
+                    Box(modifier = Modifier.width(36.dp), contentAlignment = Alignment.CenterEnd) {
+                        MetaText(if (message.hasSnr()) "${message.snr} dB" else "-- dB")
                     }
-                    if (hoistedStatus != null) {
-                        StatusPill(status = hoistedStatus, compact = true)
+                    Box(modifier = Modifier.width(48.dp), contentAlignment = Alignment.CenterEnd) {
+                        MetaText("${message.getFreq_hz()} Hz")
+                    }
+                    Box(modifier = Modifier.width(48.dp), contentAlignment = Alignment.CenterEnd) {
+                        MetaText(
+                            text = "DT ${formatDecodeDt(message.time_sec)}",
+                            color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
+                        )
+                    }
+                    Box(modifier = Modifier.width(48.dp), contentAlignment = Alignment.CenterEnd) {
+                        if (hoistedDistanceText.isNotEmpty()) {
+                            MetaText(hoistedDistanceText)
+                        }
+                    }
+                    Box(modifier = Modifier.width(56.dp), contentAlignment = Alignment.CenterEnd) {
+                        if (hoistedStatus != null) {
+                            StatusPill(status = hoistedStatus, compact = true)
+                        }
                     }
                 }
             } else {
