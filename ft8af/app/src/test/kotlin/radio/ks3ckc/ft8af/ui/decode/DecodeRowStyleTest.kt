@@ -187,6 +187,21 @@ class DecodeRowStyleTest {
     }
 
     @Test
+    fun decodeRowMetrics_compactRowIsTightAroundOneLine() {
+        // Measured on device before: 37dp per compact row, ~11 rows on screen.
+        val compact = decodeRowMetrics(compact = true)
+        assertThat(decodeRowHeightDp(compact, COMPACT_ROW_CONTENT_DP)).isEqualTo(26)
+        // The accent bar never makes a compact row taller than its content.
+        assertThat(compact.accentBarDp).isAtMost(COMPACT_ROW_CONTENT_DP)
+    }
+
+    @Test
+    fun decodeRowMetrics_expandedKeepsItsSpacing() {
+        assertThat(decodeRowMetrics(compact = false))
+            .isEqualTo(DecodeRowMetrics(outerVerticalDp = 3, innerVerticalDp = 10, accentBarDp = 52))
+    }
+
+    @Test
     fun compactMessageEmphasis_marksRepliesToMeThenTheTarget() {
         assertThat(compactMessageEmphasis(isToMe = true, isTarget = false)).isEqualTo(CompactMessageEmphasis.TO_YOU)
         assertThat(compactMessageEmphasis(isToMe = true, isTarget = true)).isEqualTo(CompactMessageEmphasis.TO_YOU)

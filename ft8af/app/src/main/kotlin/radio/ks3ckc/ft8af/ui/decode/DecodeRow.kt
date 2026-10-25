@@ -112,6 +112,7 @@ fun DecodeRow(
         }
     }
 
+    val metrics = decodeRowMetrics(compact)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -119,12 +120,17 @@ fun DecodeRow(
                 alpha = entryAnim.value * decodeRowDimAlpha(isInQsoWithOther)
                 translationY = (1f - entryAnim.value) * -12f
             }
-            .padding(horizontal = 12.dp, vertical = 3.dp)
+            .padding(horizontal = 12.dp, vertical = metrics.outerVerticalDp.dp)
             .clip(shape)
             .background(bgColor, shape)
             .border(1.dp, borderColor, shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = 0.dp, end = 12.dp, top = if (compact) 6.dp else 10.dp, bottom = if (compact) 6.dp else 10.dp),
+            .padding(
+                start = 0.dp,
+                end = 12.dp,
+                top = metrics.innerVerticalDp.dp,
+                bottom = metrics.innerVerticalDp.dp,
+            ),
         verticalAlignment = if (compact) Alignment.CenterVertically else Alignment.Top,
     ) {
         // Left accent bar — pink for the current call target, amber for CQ.
@@ -138,7 +144,7 @@ fun DecodeRow(
             Box(
                 modifier = Modifier
                     .width(3.dp)
-                    .height(if (compact) 20.dp else 52.dp)
+                    .height(metrics.accentBarDp.dp)
                     .background(accentColor, RoundedCornerShape(99.dp))
             )
             Spacer(modifier = Modifier.width(10.dp))
@@ -393,6 +399,37 @@ fun DecodeRow(
  */
 internal fun decodeRowDimAlpha(isInQsoWithOther: Boolean): Float =
     if (isInQsoWithOther) 0.8f else 1f
+
+/**
+ * A decode row's vertical spacing: the gap around each row card
+ * ([outerVerticalDp], each side), the card's inner top/bottom padding
+ * ([innerVerticalDp]) and the accent bar's height ([accentBarDp]).
+ */
+internal data class DecodeRowMetrics(
+    val outerVerticalDp: Int,
+    val innerVerticalDp: Int,
+    val accentBarDp: Int,
+)
+
+/** Height of the compact row's tallest content, the compact status pill. */
+internal const val COMPACT_ROW_CONTENT_DP = 18
+
+/**
+ * Compact rows are a single line, so they drop the padding the two-line
+ * layout needed: on a real phone a compact row measured 37dp, mostly
+ * padding around 18dp of content, and only ~11 rows fit where a busy slot
+ * had 15. Expanded rows keep their original spacing.
+ */
+internal fun decodeRowMetrics(compact: Boolean): DecodeRowMetrics =
+    if (compact) {
+        DecodeRowMetrics(outerVerticalDp = 1, innerVerticalDp = 2, accentBarDp = 14)
+    } else {
+        DecodeRowMetrics(outerVerticalDp = 3, innerVerticalDp = 10, accentBarDp = 52)
+    }
+
+/** The height a row with [metrics] takes in the list, its 1dp border included. */
+internal fun decodeRowHeightDp(metrics: DecodeRowMetrics, contentDp: Int): Int =
+    2 * metrics.outerVerticalDp + 2 + 2 * metrics.innerVerticalDp + maxOf(contentDp, metrics.accentBarDp)
 
 /**
  * The text to show next to the callsign for the message's own exchanged
