@@ -198,3 +198,31 @@ internal fun autoScrollTargetIndex(
     if (size <= previousSize || size == 0) return null
     return if (sortMode == DecodeSortMode.LAST_HEARD) 0 else null
 }
+
+/**
+ * Whether the "N decoded" count belongs in the Decode screen's top-bar
+ * subtitle for [sortMode]. False only for [DecodeSortMode.LAST_HEARD],
+ * where it moves instead to the newest [TimeGroupDivider] (see
+ * [decodedCountForDivider]) -- showing it in both places would duplicate
+ * the same number, and the per-slot time dividers only exist in that mode
+ * (see [showTimeGroupDividers]).
+ */
+internal fun showDecodedCountInSubtitle(sortMode: DecodeSortMode): Boolean =
+    sortMode != DecodeSortMode.LAST_HEARD
+
+/**
+ * The live "decoded this cycle" count to show on the time-group divider at
+ * [dividerIndex] in the collapsed list, or null to show no count there.
+ * Only the newest divider (index 0 -- [DecodeSortMode.LAST_HEARD] always
+ * sorts newest-first, see [autoScrollTargetIndex]) represents the still-
+ * accumulating current cycle; older dividers are historical slots the live
+ * counter doesn't describe.
+ */
+internal fun decodedCountForDivider(
+    sortMode: DecodeSortMode,
+    dividerIndex: Int,
+    liveDecodedCount: Int,
+): Int? {
+    if (sortMode != DecodeSortMode.LAST_HEARD || dividerIndex != 0) return null
+    return liveDecodedCount
+}

@@ -392,4 +392,26 @@ class DecodeCollapseTest {
         // Empty list -> no scroll.
         assertThat(autoScrollTargetIndex(DecodeSortMode.LAST_HEARD, size = 0, previousSize = 0)).isNull()
     }
+
+    @Test
+    fun showDecodedCountInSubtitle_onlyWhenNotLastHeard() {
+        // LAST_HEARD moves the count onto the newest time-group divider instead.
+        assertThat(showDecodedCountInSubtitle(DecodeSortMode.LAST_HEARD)).isFalse()
+        assertThat(showDecodedCountInSubtitle(DecodeSortMode.CALLSIGN)).isTrue()
+        assertThat(showDecodedCountInSubtitle(DecodeSortMode.SNR)).isTrue()
+        assertThat(showDecodedCountInSubtitle(DecodeSortMode.DISTANCE)).isTrue()
+    }
+
+    @Test
+    fun decodedCountForDivider_onlyTheNewestDividerInLastHeard() {
+        // Index 0 is the newest divider (LAST_HEARD sorts newest-first).
+        assertThat(decodedCountForDivider(DecodeSortMode.LAST_HEARD, dividerIndex = 0, liveDecodedCount = 6))
+            .isEqualTo(6)
+        // Older/historical dividers don't describe the live, still-accumulating count.
+        assertThat(decodedCountForDivider(DecodeSortMode.LAST_HEARD, dividerIndex = 1, liveDecodedCount = 6))
+            .isNull()
+        // Other sort modes have no time-group dividers at all.
+        assertThat(decodedCountForDivider(DecodeSortMode.CALLSIGN, dividerIndex = 0, liveDecodedCount = 6))
+            .isNull()
+    }
 }

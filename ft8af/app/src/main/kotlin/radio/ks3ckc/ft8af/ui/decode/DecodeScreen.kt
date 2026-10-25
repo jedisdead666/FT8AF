@@ -240,6 +240,20 @@ fun DecodeScreen(
     } else {
         stringResource(R.string.decode_utc_placeholder)
     }
+    // The "N decoded" count sits here UNLESS sortMode is LAST_HEARD, where it
+    // moves onto the newest time-group divider instead (decodedCountForDivider)
+    // -- the per-slot dividers that count actually describes only exist in that
+    // mode (showTimeGroupDividers).
+    val subtitleText = if (showDecodedCountInSubtitle(sortMode)) {
+        stringResource(R.string.decode_subtitle, utcString, decodedCount)
+    } else {
+        utcString
+    }
+    // Landscape has more width to spare and less height: the subtitle moves
+    // onto the title's own row (next to the band/mode label) instead of
+    // sitting on a second line below it.
+    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
@@ -251,12 +265,20 @@ fun DecodeScreen(
             TopBar(
                 title = stringResource(R.string.decode_title),
                 titleContent = {
-                    ClickableTopBarTitle(text = bandModeLabel, onClick = onOpenBandMode)
-                },
-                subtitle = {
-                    TopBarSubtitle(
-                        text = stringResource(R.string.decode_subtitle, utcString, decodedCount),
+                    ClickableTopBarTitle(
+                        text = bandModeLabel,
+                        onClick = onOpenBandMode,
+                        trailing = if (isLandscape) {
+                            { TopBarSubtitle(text = subtitleText, modifier = Modifier.padding(start = 8.dp)) }
+                        } else {
+                            null
+                        },
                     )
+                },
+                subtitle = if (isLandscape) {
+                    null
+                } else {
+                    { TopBarSubtitle(text = subtitleText) }
                 },
                 actions = {
                     IconButton(
@@ -358,7 +380,11 @@ fun DecodeScreen(
                         // timeGroupDividers above over this same collapsed list, so
                         // index is always in bounds.
                         if (showTimeGroupDividers(sortMode) && timeGroupDividers[index]) {
-                            TimeGroupDivider(utcTime = message.utcTime, compact = compactMode)
+                            TimeGroupDivider(
+                                utcTime = message.utcTime,
+                                compact = compactMode,
+                                decodedCount = decodedCountForDivider(sortMode, index, decodedCount),
+                            )
                         }
 
                         // Target highlight: this row is from the station the
@@ -444,7 +470,7 @@ internal fun computeTimeGroupDividers(messages: List<Ft8Message>): BooleanArray 
 }
 
 @Composable
-private fun TimeGroupDivider(utcTime: Long, compact: Boolean = false) {
+private fun TimeGroupDivider(utcTime: Long, compact: Boolean = false, decodedCount: Int? = null) {
     val timeStr = remember(utcTime) { UtcTimer.getTimeHHMMSS(utcTime) }
     Row(
         modifier = Modifier
@@ -459,7 +485,11 @@ private fun TimeGroupDivider(utcTime: Long, compact: Boolean = false) {
                 .background(Border),
         )
         Text(
-            text = stringResource(R.string.decode_time_group_utc, timeStr),
+            text = if (decodedCount != null) {
+                stringResource(R.string.decode_time_group_utc_with_count, timeStr, decodedCount)
+            } else {
+                stringResource(R.string.decode_time_group_utc, timeStr)
+            },
             color = TextFaint,
             fontSize = 9.sp,
             fontWeight = FontWeight.SemiBold,
