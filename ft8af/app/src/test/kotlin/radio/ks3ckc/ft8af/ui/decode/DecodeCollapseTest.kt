@@ -439,35 +439,10 @@ class DecodeCollapseTest {
 
     @Test
     fun showDecodedCountInSubtitle_onlyWhenNotLastHeard() {
-        // LAST_HEARD moves the count onto the newest time-group divider instead.
+        // LAST_HEARD puts each slot's count on that slot's time-group divider instead.
         assertThat(showDecodedCountInSubtitle(DecodeSortMode.LAST_HEARD)).isFalse()
         assertThat(showDecodedCountInSubtitle(DecodeSortMode.CALLSIGN)).isTrue()
         assertThat(showDecodedCountInSubtitle(DecodeSortMode.SNR)).isTrue()
         assertThat(showDecodedCountInSubtitle(DecodeSortMode.DISTANCE)).isTrue()
-    }
-
-    @Test
-    fun showsDecodedCountOnDivider_onlyTheNewestItemInLastHeard() {
-        // Item 0 is the newest divider (LAST_HEARD sorts newest-first).
-        assertThat(showsDecodedCountOnDivider(DecodeSortMode.LAST_HEARD, itemIndex = 0)).isTrue()
-        // Older/historical dividers don't get a count.
-        assertThat(showsDecodedCountOnDivider(DecodeSortMode.LAST_HEARD, itemIndex = 1)).isFalse()
-        // Other sort modes have no time-group dividers at all.
-        assertThat(showsDecodedCountOnDivider(DecodeSortMode.CALLSIGN, itemIndex = 0)).isFalse()
-    }
-
-    @Test
-    fun groupSize_countsUntilTheNextDividerOrTheEnd() {
-        // true = divider start. Groups: [0,1,2] size 3, [3] size 1, [4,5] size 2.
-        val dividers = booleanArrayOf(true, false, false, true, true, false)
-        assertThat(groupSize(dividers, dividerIndex = 0)).isEqualTo(3)
-        assertThat(groupSize(dividers, dividerIndex = 3)).isEqualTo(1)
-        assertThat(groupSize(dividers, dividerIndex = 4)).isEqualTo(2)
-    }
-
-    @Test
-    fun groupSize_singleGroupCoversTheWholeList() {
-        assertThat(groupSize(booleanArrayOf(true), dividerIndex = 0)).isEqualTo(1)
-        assertThat(groupSize(booleanArrayOf(true, false, false), dividerIndex = 0)).isEqualTo(3)
     }
 }

@@ -182,6 +182,11 @@ fun DecodeScreen(
     val timeGroupDividers = remember(collapsedMessages) {
         computeTimeGroupDividers(collapsedMessages)
     }
+    // Each divider's count is its own slot's decodes, taken from the filtered
+    // list before collapsing (see countDecodesPerSlot for why not the collapsed one).
+    val decodesPerSlot = remember(filteredMessages) {
+        countDecodesPerSlot(filteredMessages)
+    }
 
     // Track which station rows are new-or-just-updated since the previous render
     // (animated once). Keyed by normalized station + utcTime so a station
@@ -242,10 +247,9 @@ fun DecodeScreen(
     } else {
         stringResource(R.string.decode_utc_placeholder)
     }
-    // The "N decoded" count sits here UNLESS sortMode is LAST_HEARD, where it
-    // moves onto the newest time-group divider instead (showsDecodedCountOnDivider)
-    // -- the per-slot dividers that count actually describes only exist in that
-    // mode (showTimeGroupDividers).
+    // The "N decoded" count sits here UNLESS sortMode is LAST_HEARD, where every
+    // time-group divider shows its own slot's count instead (countDecodesPerSlot)
+    // -- those per-slot dividers only exist in that mode (showTimeGroupDividers).
     val subtitleText = if (showDecodedCountInSubtitle(sortMode)) {
         stringResource(R.string.decode_subtitle, utcString, decodedCount)
     } else {
@@ -385,11 +389,7 @@ fun DecodeScreen(
                             TimeGroupDivider(
                                 utcTime = message.utcTime,
                                 compact = compactMode,
-                                decodedCount = if (showsDecodedCountOnDivider(sortMode, index)) {
-                                    groupSize(timeGroupDividers, index)
-                                } else {
-                                    null
-                                },
+                                decodedCount = decodesPerSlot[decodeSlotKey(message)],
                             )
                         }
 
@@ -463,17 +463,40 @@ fun DecodeScreen(
  */
 internal fun computeTimeGroupDividers(messages: List<Ft8Message>): BooleanArray {
     val dividers = BooleanArray(messages.size)
-    var prevSlotMillis = -1L
-    var prevSlotIndex = 0L
+    var prevKey: DecodeSlotKey? = null
     for (i in messages.indices) {
-        val slotMillis = ModeProfile.fromId(messages[i].signalFormat).slotMillis.toLong()
-        val slotIndex = WaterfallTimestampGate.slotPeriod(messages[i].utcTime, slotMillis)
-        dividers[i] = i == 0 || slotMillis != prevSlotMillis || slotIndex != prevSlotIndex
-        prevSlotMillis = slotMillis
-        prevSlotIndex = slotIndex
+        val key = decodeSlotKey(messages[i])
+        dividers[i] = i == 0 || key != prevKey
+        prevKey = key
     }
     return dividers
 }
+
+/**
+ * The receive slot a decode belongs to: its mode's slot length paired with the
+ * slot index on that grid. Two decodes share a time group exactly when their
+ * keys are equal, so the divider grouping above and the per-slot counts below
+ * always agree on what "a slot" is.
+ */
+internal data class DecodeSlotKey(val slotMillis: Long, val slotIndex: Long)
+
+internal fun decodeSlotKey(message: Ft8Message): DecodeSlotKey {
+    val slotMillis = ModeProfile.fromId(message.signalFormat).slotMillis.toLong()
+    return DecodeSlotKey(slotMillis, WaterfallTimestampGate.slotPeriod(message.utcTime, slotMillis))
+}
+
+/**
+ * How many decodes each receive slot produced, for the count on that slot's
+ * time-group divider. Pass the filtered list but NOT the one-row-per-station
+ * collapsed one: collapsing keeps only a station's latest decode, so a station
+ * heard in several slots would count only toward its newest, and older
+ * dividers would undercount and keep shrinking as their stations reappeared.
+ * Counting per slot this way gives every divider its own slot's number,
+ * stable as newer slots arrive. It follows the active filter chip, the same as
+ * the rows (hence "stations" in the divider text rather than raw decodes).
+ */
+internal fun countDecodesPerSlot(messages: List<Ft8Message>): Map<DecodeSlotKey, Int> =
+    messages.groupingBy { decodeSlotKey(it) }.eachCount()
 
 @Composable
 private fun TimeGroupDivider(utcTime: Long, compact: Boolean = false, decodedCount: Int? = null) {
