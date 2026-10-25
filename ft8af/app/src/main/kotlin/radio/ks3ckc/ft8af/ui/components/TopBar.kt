@@ -86,34 +86,46 @@ fun ClickableTopBarTitle(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    // Rendered after the chevron, still inside the clickable row -- for a
-    // caller that needs something else sharing this same row (e.g. Decode's
-    // UTC clock in landscape, where there's no separate line underneath to
-    // put it on). Null (the default) renders exactly as before.
+    // Rendered after the chevron, OUTSIDE the clickable band/mode button --
+    // for a caller that needs something else sharing this same row (e.g.
+    // Decode's UTC clock in landscape, where there's no separate line
+    // underneath to put it on) without that something becoming part of the
+    // button: real-device testing found that nesting it inside the clickable
+    // row made tapping the clock open the Band & Mode sheet, and made
+    // TalkBack read the clock text as part of the button's own label. Null
+    // (the default) renders exactly as before.
     trailing: @Composable (() -> Unit)? = null,
 ) {
     Row(
-        modifier = modifier.clickable(onClick = onClick, role = Role.Button),
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.headlineLarge.copy(
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.01).sp,
-            ),
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            // Let the chevron (and any trailing content) keep their own
-            // space; the label is the part that should give way first if
-            // everything still doesn't fit after TopBar's weight(1f) has
-            // already constrained this whole row.
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        FT8AFIcons.ChevronDown(size = 16.dp, color = TextMuted, strokeWidth = 2f)
+        Row(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .clickable(onClick = onClick, role = Role.Button),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.01).sp,
+                ),
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                // Let the chevron keep its own space; the label is the part
+                // that should give way first if the two still don't both fit
+                // after TopBar's weight(1f) has already constrained this
+                // whole row.
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            FT8AFIcons.ChevronDown(size = 16.dp, color = TextMuted, strokeWidth = 2f)
+        }
         if (trailing != null) {
             trailing()
         }

@@ -202,12 +202,14 @@ fun DecodeScreen(
     // where the newest station sits); the other sorts would yank the viewport.
     val listState = rememberLazyListState()
     var previousCount by remember { mutableIntStateOf(0) }
+    var previousSortMode by remember { mutableStateOf(sortMode) }
     LaunchedEffect(collapsedMessages.size, sortMode) {
-        val target = autoScrollTargetIndex(sortMode, collapsedMessages.size, previousCount)
+        val target = autoScrollTargetIndex(sortMode, previousSortMode, collapsedMessages.size, previousCount)
         if (target != null) {
             listState.animateScrollToItem(target)
         }
         previousCount = collapsedMessages.size
+        previousSortMode = sortMode
     }
 
     // A tapped Needed-DX notification asks us to pre-select that station: reset to the
@@ -241,7 +243,7 @@ fun DecodeScreen(
         stringResource(R.string.decode_utc_placeholder)
     }
     // The "N decoded" count sits here UNLESS sortMode is LAST_HEARD, where it
-    // moves onto the newest time-group divider instead (decodedCountForDivider)
+    // moves onto the newest time-group divider instead (showsDecodedCountOnDivider)
     // -- the per-slot dividers that count actually describes only exist in that
     // mode (showTimeGroupDividers).
     val subtitleText = if (showDecodedCountInSubtitle(sortMode)) {
@@ -383,7 +385,11 @@ fun DecodeScreen(
                             TimeGroupDivider(
                                 utcTime = message.utcTime,
                                 compact = compactMode,
-                                decodedCount = decodedCountForDivider(sortMode, index, decodedCount),
+                                decodedCount = if (showsDecodedCountOnDivider(sortMode, index)) {
+                                    groupSize(timeGroupDividers, index)
+                                } else {
+                                    null
+                                },
                             )
                         }
 

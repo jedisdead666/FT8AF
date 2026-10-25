@@ -382,15 +382,59 @@ class DecodeCollapseTest {
     }
 
     @Test
-    fun autoScrollTarget_onlyLastHeardScrollsToTopWhenGrown() {
-        assertThat(autoScrollTargetIndex(DecodeSortMode.LAST_HEARD, size = 3, previousSize = 2)).isEqualTo(0)
-        // No growth -> no scroll.
-        assertThat(autoScrollTargetIndex(DecodeSortMode.LAST_HEARD, size = 2, previousSize = 2)).isNull()
+    fun autoScrollTarget_lastHeardScrollsToTopWhenGrown() {
+        assertThat(
+            autoScrollTargetIndex(
+                DecodeSortMode.LAST_HEARD, previousSortMode = DecodeSortMode.LAST_HEARD,
+                size = 3, previousSize = 2,
+            ),
+        ).isEqualTo(0)
+        // No growth, same mode -> no scroll.
+        assertThat(
+            autoScrollTargetIndex(
+                DecodeSortMode.LAST_HEARD, previousSortMode = DecodeSortMode.LAST_HEARD,
+                size = 2, previousSize = 2,
+            ),
+        ).isNull()
         // Other modes never auto-scroll.
-        assertThat(autoScrollTargetIndex(DecodeSortMode.CALLSIGN, size = 3, previousSize = 2)).isNull()
-        assertThat(autoScrollTargetIndex(DecodeSortMode.SNR, size = 3, previousSize = 2)).isNull()
+        assertThat(
+            autoScrollTargetIndex(
+                DecodeSortMode.CALLSIGN, previousSortMode = DecodeSortMode.CALLSIGN,
+                size = 3, previousSize = 2,
+            ),
+        ).isNull()
+        assertThat(
+            autoScrollTargetIndex(
+                DecodeSortMode.SNR, previousSortMode = DecodeSortMode.SNR,
+                size = 3, previousSize = 2,
+            ),
+        ).isNull()
         // Empty list -> no scroll.
-        assertThat(autoScrollTargetIndex(DecodeSortMode.LAST_HEARD, size = 0, previousSize = 0)).isNull()
+        assertThat(
+            autoScrollTargetIndex(
+                DecodeSortMode.LAST_HEARD, previousSortMode = DecodeSortMode.LAST_HEARD,
+                size = 0, previousSize = 0,
+            ),
+        ).isNull()
+    }
+
+    @Test
+    fun autoScrollTarget_scrollsToTopOnSwitchingIntoLastHeardEvenWithoutGrowth() {
+        // Real-device finding: switching DX -> TIME left the newest (count-bearing)
+        // divider off-screen, because the old logic only scrolled on list growth.
+        assertThat(
+            autoScrollTargetIndex(
+                DecodeSortMode.LAST_HEARD, previousSortMode = DecodeSortMode.DISTANCE,
+                size = 5, previousSize = 5,
+            ),
+        ).isEqualTo(0)
+        // Switching AWAY from LAST_HEARD never scrolls (that mode doesn't auto-scroll).
+        assertThat(
+            autoScrollTargetIndex(
+                DecodeSortMode.DISTANCE, previousSortMode = DecodeSortMode.LAST_HEARD,
+                size = 5, previousSize = 5,
+            ),
+        ).isNull()
     }
 
     @Test
@@ -403,15 +447,27 @@ class DecodeCollapseTest {
     }
 
     @Test
-    fun decodedCountForDivider_onlyTheNewestDividerInLastHeard() {
-        // Index 0 is the newest divider (LAST_HEARD sorts newest-first).
-        assertThat(decodedCountForDivider(DecodeSortMode.LAST_HEARD, dividerIndex = 0, liveDecodedCount = 6))
-            .isEqualTo(6)
-        // Older/historical dividers don't describe the live, still-accumulating count.
-        assertThat(decodedCountForDivider(DecodeSortMode.LAST_HEARD, dividerIndex = 1, liveDecodedCount = 6))
-            .isNull()
+    fun showsDecodedCountOnDivider_onlyTheNewestItemInLastHeard() {
+        // Item 0 is the newest divider (LAST_HEARD sorts newest-first).
+        assertThat(showsDecodedCountOnDivider(DecodeSortMode.LAST_HEARD, itemIndex = 0)).isTrue()
+        // Older/historical dividers don't get a count.
+        assertThat(showsDecodedCountOnDivider(DecodeSortMode.LAST_HEARD, itemIndex = 1)).isFalse()
         // Other sort modes have no time-group dividers at all.
-        assertThat(decodedCountForDivider(DecodeSortMode.CALLSIGN, dividerIndex = 0, liveDecodedCount = 6))
-            .isNull()
+        assertThat(showsDecodedCountOnDivider(DecodeSortMode.CALLSIGN, itemIndex = 0)).isFalse()
+    }
+
+    @Test
+    fun groupSize_countsUntilTheNextDividerOrTheEnd() {
+        // true = divider start. Groups: [0,1,2] size 3, [3] size 1, [4,5] size 2.
+        val dividers = booleanArrayOf(true, false, false, true, true, false)
+        assertThat(groupSize(dividers, dividerIndex = 0)).isEqualTo(3)
+        assertThat(groupSize(dividers, dividerIndex = 3)).isEqualTo(1)
+        assertThat(groupSize(dividers, dividerIndex = 4)).isEqualTo(2)
+    }
+
+    @Test
+    fun groupSize_singleGroupCoversTheWholeList() {
+        assertThat(groupSize(booleanArrayOf(true), dividerIndex = 0)).isEqualTo(1)
+        assertThat(groupSize(booleanArrayOf(true, false, false), dividerIndex = 0)).isEqualTo(3)
     }
 }

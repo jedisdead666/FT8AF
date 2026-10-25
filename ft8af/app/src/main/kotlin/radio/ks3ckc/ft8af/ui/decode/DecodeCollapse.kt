@@ -184,26 +184,34 @@ internal fun showTimeGroupDividers(sortMode: DecodeSortMode): Boolean =
     sortMode == DecodeSortMode.LAST_HEARD
 
 /**
- * Index to auto-scroll to when the collapsed list grows, or null to leave the
- * scroll position alone. Only [DecodeSortMode.LAST_HEARD] auto-scrolls, and to
- * the top (index 0) because that mode puts the newest station first. In the
- * other modes a new station can land anywhere, so yanking the viewport would
- * fight the operator.
+ * Index to auto-scroll to when the collapsed list grows OR the operator just
+ * switched into [DecodeSortMode.LAST_HEARD], or null to leave the scroll
+ * position alone. Only [LAST_HEARD] auto-scrolls, and to the top (index 0)
+ * because that mode puts the newest station first -- and, in TIME mode
+ * specifically, is also where the decode-count-bearing time-group divider
+ * lives (see [showsDecodedCountOnDivider]), so leaving the viewport wherever
+ * a different sort mode had it hides that divider until the operator
+ * scrolls up manually (found in real-device testing: switching DX -> TIME
+ * left the newest divider off-screen). In the other modes a new station can
+ * land anywhere, so yanking the viewport would fight the operator.
  */
 internal fun autoScrollTargetIndex(
     sortMode: DecodeSortMode,
+    previousSortMode: DecodeSortMode,
     size: Int,
     previousSize: Int,
 ): Int? {
-    if (size <= previousSize || size == 0) return null
-    return if (sortMode == DecodeSortMode.LAST_HEARD) 0 else null
+    if (sortMode != DecodeSortMode.LAST_HEARD || size == 0) return null
+    val justSwitchedToLastHeard = sortMode != previousSortMode
+    val grew = size > previousSize
+    return if (justSwitchedToLastHeard || grew) 0 else null
 }
 
 /**
  * Whether the "N decoded" count belongs in the Decode screen's top-bar
  * subtitle for [sortMode]. False only for [DecodeSortMode.LAST_HEARD],
- * where it moves instead to the newest [TimeGroupDivider] (see
- * [decodedCountForDivider]) -- showing it in both places would duplicate
+ * where it moves instead to the newest time-group divider (see
+ * [showsDecodedCountOnDivider]) -- showing it in both places would duplicate
  * the same number, and the per-slot time dividers only exist in that mode
  * (see [showTimeGroupDividers]).
  */
@@ -211,18 +219,38 @@ internal fun showDecodedCountInSubtitle(sortMode: DecodeSortMode): Boolean =
     sortMode != DecodeSortMode.LAST_HEARD
 
 /**
- * The live "decoded this cycle" count to show on the time-group divider at
- * [dividerIndex] in the collapsed list, or null to show no count there.
- * Only the newest divider (index 0 -- [DecodeSortMode.LAST_HEARD] always
- * sorts newest-first, see [autoScrollTargetIndex]) represents the still-
- * accumulating current cycle; older dividers are historical slots the live
- * counter doesn't describe.
+ * Whether the time-group divider for the item at [itemIndex] in the
+ * collapsed list should show a decode count. Only the newest divider (item
+ * index 0 -- [DecodeSortMode.LAST_HEARD] always sorts newest-first, see
+ * [autoScrollTargetIndex], and item 0 always starts a group, see
+ * `computeTimeGroupDividers`) gets one.
+ *
+ * <p>Deliberately NOT the live "decoded this cycle" counter: an earlier
+ * version used that directly, which mislabeled the newest divider on a
+ * cycle that decoded nothing -- the live counter read 0 while the newest
+ * divider still belonged to an OLDER slot that genuinely had stations, so
+ * it showed "... • 0 decoded" next to a slot that wasn't empty. The caller
+ * should instead count how many items actually belong to this divider's own
+ * group (its own slot's real decode count), which is correct regardless of
+ * whether that group happens to be the live, still-accumulating cycle or an
+ * older one.
  */
-internal fun decodedCountForDivider(
-    sortMode: DecodeSortMode,
-    dividerIndex: Int,
-    liveDecodedCount: Int,
-): Int? {
-    if (sortMode != DecodeSortMode.LAST_HEARD || dividerIndex != 0) return null
-    return liveDecodedCount
+internal fun showsDecodedCountOnDivider(sortMode: DecodeSortMode, itemIndex: Int): Boolean =
+    sortMode == DecodeSortMode.LAST_HEARD && itemIndex == 0
+
+/**
+ * How many items belong to the time-group starting at [dividerIndex] in
+ * [dividers] (as computed by `computeTimeGroupDividers`) -- scans forward
+ * until the next divider, or the end of the list. [dividerIndex] must itself
+ * be a divider position (`dividers[dividerIndex] == true`); index 0 always
+ * qualifies.
+ */
+internal fun groupSize(dividers: BooleanArray, dividerIndex: Int): Int {
+    var size = 1
+    var i = dividerIndex + 1
+    while (i < dividers.size && !dividers[i]) {
+        size++
+        i++
+    }
+    return size
 }
