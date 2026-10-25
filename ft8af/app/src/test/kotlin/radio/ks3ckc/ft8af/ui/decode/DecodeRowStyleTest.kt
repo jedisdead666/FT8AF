@@ -120,13 +120,13 @@ class DecodeRowStyleTest {
     // Row widths measured on device: motorola edge 2022 (432dp screen) leaves the
     // row ~383dp; Galaxy A32 (384dp) ~335dp; a typical 360dp phone ~311dp.
 
-    private fun messageRoom(availableDp: Int, leadingDp: Int, layout: CompactRowLayout): Int =
-        availableDp - leadingDp - layout.columns.sumOf { it.widthDp + COMPACT_GAP_DP } -
+    private fun messageRoom(availableDp: Int, layout: CompactRowLayout): Int =
+        availableDp - layout.columns.sumOf { it.widthDp + COMPACT_GAP_DP } -
             COMPACT_GAP_DP - layout.pillSlotDp
 
     @Test
     fun compactRowLayout_wideRowKeepsEverythingInOrder() {
-        val layout = compactRowLayout(availableDp = 500f, leadingDp = 0, hasOperatorGrid = true, showHeading = true)
+        val layout = compactRowLayout(availableDp = 500f, hasOperatorGrid = true, showHeading = true)
         assertThat(layout.columns).containsExactly(
             CompactMetaColumn.SNR, CompactMetaColumn.FREQ, CompactMetaColumn.DT, CompactMetaColumn.HEADING,
         ).inOrder()
@@ -145,8 +145,8 @@ class DecodeRowStyleTest {
         // The real-device bug: the A32 left the message ~122dp (~16 chars).
         for (width in listOf(383, 335, 311)) {
             for (hasGrid in listOf(true, false)) {
-                val layout = compactRowLayout(width.toFloat(), leadingDp = 0, hasOperatorGrid = hasGrid, showHeading = false)
-                assertThat(messageRoom(width, 0, layout)).isAtLeast(COMPACT_MIN_MESSAGE_DP)
+                val layout = compactRowLayout(width.toFloat(), hasOperatorGrid = hasGrid, showHeading = false)
+                assertThat(messageRoom(width, layout)).isAtLeast(COMPACT_MIN_MESSAGE_DP)
             }
         }
     }
@@ -154,36 +154,43 @@ class DecodeRowStyleTest {
     @Test
     fun compactRowLayout_givesUpMetadataBeforeThePillLabel() {
         // motorola edge 2022: everything fits -- SNR, Hz, DT and the full pill.
-        val moto = compactRowLayout(availableDp = 383f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
+        val moto = compactRowLayout(availableDp = 383f, hasOperatorGrid = true, showHeading = false)
         assertThat(moto.columns)
             .containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.FREQ, CompactMetaColumn.DT).inOrder()
         assertThat(moto.pillDotOnly).isFalse()
         // Galaxy A32: only Hz goes; DT and the full pill label stay (user choice).
-        val a32 = compactRowLayout(availableDp = 335f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
+        val a32 = compactRowLayout(availableDp = 335f, hasOperatorGrid = true, showHeading = false)
         assertThat(a32.columns).containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DT).inOrder()
         assertThat(a32.pillDotOnly).isFalse()
         // 360dp phone: DT goes too, still with the full pill.
-        val small = compactRowLayout(availableDp = 311f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
+        val small = compactRowLayout(availableDp = 311f, hasOperatorGrid = true, showHeading = false)
         assertThat(small.columns).containsExactly(CompactMetaColumn.SNR)
         assertThat(small.pillDotOnly).isFalse()
         // Very narrow: the pill shrinks to its dot last; SNR always stays.
-        val tiny = compactRowLayout(availableDp = 250f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
+        val tiny = compactRowLayout(availableDp = 250f, hasOperatorGrid = true, showHeading = false)
         assertThat(tiny.columns).containsExactly(CompactMetaColumn.SNR)
         assertThat(tiny.pillDotOnly).isTrue()
     }
 
     @Test
     fun compactRowLayout_noOperatorGridLeavesOutHeading() {
-        val layout = compactRowLayout(availableDp = 500f, leadingDp = 0, hasOperatorGrid = false, showHeading = true)
+        val layout = compactRowLayout(availableDp = 500f, hasOperatorGrid = false, showHeading = true)
         assertThat(layout.columns).doesNotContain(CompactMetaColumn.HEADING)
     }
 
     @Test
-    fun compactRowLayout_aCallingChipStillLeavesRoomForTheMessage() {
-        val layout = compactRowLayout(
-            availableDp = 383f, leadingDp = COMPACT_LABEL_CHIP_DP, hasOperatorGrid = true, showHeading = false,
-        )
-        assertThat(messageRoom(383, COMPACT_LABEL_CHIP_DP, layout)).isAtLeast(COMPACT_MIN_MESSAGE_DP)
+    fun compactRowLayout_headingIsTheFirstColumnToGo() {
+        // Wide enough for everything: heading sits after DT in its own slot.
+        val wide = compactRowLayout(availableDp = 420f, hasOperatorGrid = true, showHeading = true)
+        assertThat(wide.columns).containsExactly(
+            CompactMetaColumn.SNR, CompactMetaColumn.FREQ, CompactMetaColumn.DT, CompactMetaColumn.HEADING,
+        ).inOrder()
+        // motorola edge 2022 with heading on: heading goes, Hz and DT stay.
+        val moto = compactRowLayout(availableDp = 383f, hasOperatorGrid = true, showHeading = true)
+        assertThat(moto.columns)
+            .containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.FREQ, CompactMetaColumn.DT).inOrder()
+        assertThat(moto.pillDotOnly).isFalse()
+        assertThat(messageRoom(383, moto)).isAtLeast(COMPACT_MIN_MESSAGE_DP)
     }
 
     @Test

@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -176,10 +178,15 @@ fun DecodeRow(
                     // Which trailing cells fit next to a readable message on this
                     // width (see compactRowLayout); a narrow phone gives up
                     // metadata, then the pill's label, instead of the text.
+                    // A CALLING chip comes out of the message's width, not the
+                    // columns', so every row gets the same layout and lines up.
+                    // The grid is observed so a GPS/settings update re-lays out
+                    // rows already on screen.
+                    val myGrid by GeneralVariables.mutableMyMaidenheadGrid
+                        .observeAsState(GeneralVariables.getMyMaidenheadGrid())
                     val layout = compactRowLayout(
                         availableDp = maxWidth.value,
-                        leadingDp = labels.size * COMPACT_LABEL_CHIP_DP,
-                        hasOperatorGrid = !GeneralVariables.getMyMaidenheadGrid().isNullOrEmpty(),
+                        hasOperatorGrid = !myGrid.isNullOrEmpty(),
                         showHeading = GeneralVariables.showBeamHeading,
                     )
                     val emphasis = compactMessageEmphasis(isToMe = isToMe, isTarget = isTarget)
@@ -209,8 +216,8 @@ fun DecodeRow(
                         )
 
                         // Fixed-width slots (reserved even when the cell's content
-                        // is absent, e.g. no distance without a grid, no pill
-                        // without a status) so the columns start at the same x on
+                        // is absent, e.g. no heading for a station without a
+                        // grid, no pill without a status) so the columns start at the same x on
                         // every row instead of zig-zagging with whichever optional
                         // cells happen to be present -- real-device measurement
                         // showed dB's start x varying by 300+ px row to row
@@ -506,9 +513,6 @@ internal const val COMPACT_PILL_DP = 80
 /** Width of the pill slot when only the pill's colored dot is shown. */
 internal const val COMPACT_PILL_DOT_DP = 16
 
-/** Width a label chip (e.g. CALLING) takes in the compact row, gap included. */
-internal const val COMPACT_LABEL_CHIP_DP = 58
-
 /**
  * Width the compact row keeps for its message text before giving up any
  * more metadata -- about 21 monospace characters at 12sp (~7.6dp each,
@@ -548,14 +552,18 @@ internal data class CompactRowLayout(
  * given screen gets the same layout, so the columns line up.
  *
  * The message text is the row's primary content, so the trailing cells give
- * way until it keeps [COMPACT_MIN_MESSAGE_DP] (after [leadingDp] of label
- * chips), in this order: beam heading, audio frequency, DT, then the pill's
- * label (down to its colored dot). SNR always stays. Beam heading is left out
- * when [hasOperatorGrid] is false, since no row could show one.
+ * way until it keeps [COMPACT_MIN_MESSAGE_DP], in this order: beam heading,
+ * audio frequency, DT, then the pill's label (down to its colored dot). SNR
+ * always stays, so a row too narrow even for SNR and the dot leaves the
+ * message less. Beam heading is left out when [hasOperatorGrid] is false,
+ * since no row could show one.
+ *
+ * Label chips (CALLING) are deliberately not an input: the chip takes its
+ * width from that one row's message, so the layout depends only on the row
+ * width and the columns sit at the same x on every row.
  */
 internal fun compactRowLayout(
     availableDp: Float,
-    leadingDp: Int,
     hasOperatorGrid: Boolean,
     showHeading: Boolean,
 ): CompactRowLayout {
@@ -563,7 +571,7 @@ internal fun compactRowLayout(
         it != CompactMetaColumn.HEADING || (hasOperatorGrid && showHeading)
     }.toMutableList()
     var pillDotOnly = false
-    fun required(): Int = leadingDp + COMPACT_MIN_MESSAGE_DP +
+    fun required(): Int = COMPACT_MIN_MESSAGE_DP +
         columns.sumOf { it.widthDp + COMPACT_GAP_DP } + COMPACT_GAP_DP +
         (if (pillDotOnly) COMPACT_PILL_DOT_DP else COMPACT_PILL_DP)
     val steps = listOf<() -> Unit>(
