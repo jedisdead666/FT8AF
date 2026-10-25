@@ -140,153 +140,208 @@ fun DecodeRow(
             Spacer(modifier = Modifier.width(13.dp))
         }
 
+        // Shared across both layouts below, computed once so compact/expanded
+        // differ only in ARRANGEMENT, never in the underlying values.
+        //
+        // Grid locator, or whatever else the message's own third field held
+        // (report, RR73, 73) when it wasn't grid-shaped -- see
+        // secondaryFieldText. Free-text messages have no callsignFrom to show
+        // this next to and can carry a much longer extraInfo, so they're
+        // excluded rather than dumping the whole free-text body into this
+        // narrow slot.
+        val hoistedGrid = if (message.callsignFrom.isNullOrEmpty()) {
+            ""
+        } else {
+            secondaryFieldText(message.maidenGrid, message.extraInfo)
+        }
+        val hoistedStatus = resolveQsoStatus(message)
+        val hoistedDistanceText = computeDistanceText(message)
+        val hoistedAgoText = if (nowMillis > 0L) formatTimeAgo(message.utcTime, nowMillis) else ""
+
         Column(modifier = Modifier.weight(1f)) {
-            // Top row: label + callsign + grid + status pill
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // CALLING / TO YOU / CQ labels (can stack \u2014 e.g. target station
-                // calling CQ shows both CALLING and CQ).
-                if (isTarget) {
-                    MessageLabel(text = stringResource(R.string.decode_label_calling), color = Target, bgColor = TargetSoft)
-                }
-                if (isCQ) {
-                    MessageLabel(text = stringResource(R.string.decode_label_cq), color = Accent, bgColor = AccentSoft)
-                } else if (isToMe) {
-                    MessageLabel(text = stringResource(R.string.decode_label_to_you), color = Signal, bgColor = SignalSoft)
-                }
-
-                // Callsign
-                Text(
-                    text = message.callsignFrom ?: "",
-                    color = when {
-                        isToMe -> Signal
-                        isTarget -> Target
-                        else -> TextPrimary
-                    },
-                    fontFamily = GeistMonoFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    letterSpacing = 0.02.sp,
-                )
-
-                // Grid locator, or whatever else the message's own third field held
-                // (report, RR73, 73) when it wasn't grid-shaped -- see
-                // secondaryFieldText. Free-text messages have no callsignFrom to
-                // show this next to and can carry a much longer extraInfo, so
-                // they're excluded rather than dumping the whole free-text body
-                // into this narrow slot.
-                val grid = if (message.callsignFrom.isNullOrEmpty()) {
-                    ""
-                } else {
-                    secondaryFieldText(message.maidenGrid, message.extraInfo)
-                }
-                if (grid.isNotEmpty()) {
+            if (compact) {
+                // Single-line compact row: callsign, grid/report, signal metadata,
+                // and the status pill all share one row -- user request, the
+                // start of the wider "one line per decode" density goal. CQ/TO
+                // YOU are dropped here specifically because they'd duplicate the
+                // status pill (resolveQsoStatus already returns QsoStatus.CQ /
+                // PENDING for exactly those two cases); CALLING is kept, since
+                // isTarget isn't one of resolveQsoStatus's inputs and the pill
+                // can't show it.
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (isTarget) {
+                        MessageLabel(text = stringResource(R.string.decode_label_calling), color = Target, bgColor = TargetSoft)
+                    }
                     Text(
-                        text = grid,
-                        color = TextFaint,
+                        text = message.callsignFrom ?: "",
+                        color = when {
+                            isToMe -> Signal
+                            isTarget -> Target
+                            else -> TextPrimary
+                        },
                         fontFamily = GeistMonoFamily,
-                        fontSize = 11.sp,
-                    )
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Status pill (skipped when there's no useful state to surface)
-                val status = resolveQsoStatus(message)
-                if (status != null) {
-                    StatusPill(status = status, compact = true)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(if (compact) 2.dp else 4.dp))
-
-            // Full decoded message text (canonical FT8 frame, e.g. "K1ABC W9XYZ EN37"
-            // or "CQ POTA W1ABC FN42"). This is what was actually transmitted.
-            if (!compact) {
-                val msgText = message.getMessageText()?.trim().orEmpty()
-                if (msgText.isNotEmpty()) {
-                    Text(
-                        text = msgText,
-                        color = TextMuted,
-                        fontFamily = GeistMonoFamily,
-                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
                         letterSpacing = 0.02.sp,
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    if (hoistedGrid.isNotEmpty()) {
+                        Text(text = hoistedGrid, color = TextFaint, fontFamily = GeistMonoFamily, fontSize = 11.sp)
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    MetaText(if (message.hasSnr()) "${message.snr} dB" else "-- dB")
+                    MetaText("${message.getFreq_hz()} Hz")
+                    MetaText(
+                        text = "DT ${formatDecodeDt(message.time_sec)}",
+                        color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
+                    )
+                    if (hoistedDistanceText.isNotEmpty()) {
+                        MetaText(hoistedDistanceText)
+                    }
+                    if (hoistedAgoText.isNotEmpty()) {
+                        MetaText(hoistedAgoText)
+                    }
+                    if (hoistedStatus != null) {
+                        StatusPill(status = hoistedStatus, compact = true)
+                    }
                 }
-            }
+            } else {
+                // Top row: label + callsign + grid + status pill
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // CALLING / TO YOU / CQ labels (can stack \u2014 e.g. target station
+                    // calling CQ shows both CALLING and CQ).
+                    if (isTarget) {
+                        MessageLabel(text = stringResource(R.string.decode_label_calling), color = Target, bgColor = TargetSoft)
+                    }
+                    if (isCQ) {
+                        MessageLabel(text = stringResource(R.string.decode_label_cq), color = Accent, bgColor = AccentSoft)
+                    } else if (isToMe) {
+                        MessageLabel(text = stringResource(R.string.decode_label_to_you), color = Signal, bgColor = SignalSoft)
+                    }
 
-            // Metadata row: signal bar, SNR, frequency, distance, UTC time
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                SignalBar(snr = if (message.hasSnr()) message.snr else -30, width = if (compact) 22.dp else 28.dp, height = if (compact) 10.dp else 12.dp)
+                    // Callsign
+                    Text(
+                        text = message.callsignFrom ?: "",
+                        color = when {
+                            isToMe -> Signal
+                            isTarget -> Target
+                            else -> TextPrimary
+                        },
+                        fontFamily = GeistMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        letterSpacing = 0.02.sp,
+                    )
 
-                MetaText(if (message.hasSnr()) "${message.snr} dB" else "-- dB")
-                MetaText("${message.getFreq_hz()} Hz")
+                    if (hoistedGrid.isNotEmpty()) {
+                        Text(
+                            text = hoistedGrid,
+                            color = TextFaint,
+                            fontFamily = GeistMonoFamily,
+                            fontSize = 11.sp,
+                        )
+                    }
 
-                // DT, as WSJT-X shows it: how far into our RX window this signal
-                // started. Per-decode rather than only the averaged pill on the slot
-                // bar, because the two answer different questions — every station
-                // sitting at the same offset is our clock, one station out on its own
-                // is that station's.
-                MetaText(
-                    text = "DT ${formatDecodeDt(message.time_sec)}",
-                    color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
-                )
+                    Spacer(modifier = Modifier.weight(1f))
 
-                // Distance (computed from grid)
-                val distanceText = computeDistanceText(message)
-                if (distanceText.isNotEmpty()) {
-                    MetaText(distanceText)
-                }
-
-                // Beam heading (short-path bearing) — opt-in, for beam operators
-                // who want to know which way to turn the antenna without opening
-                // the QSO sheet first.
-                if (GeneralVariables.showBeamHeading) {
-                    val headingText = computeBeamHeadingText(message)
-                    if (headingText.isNotEmpty()) {
-                        MetaText(headingText)
+                    // Status pill (skipped when there's no useful state to surface)
+                    if (hoistedStatus != null) {
+                        StatusPill(status = hoistedStatus, compact = true)
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.height(4.dp))
 
-                // Relative "ago" time
-                val agoText = if (nowMillis > 0L) {
-                    formatTimeAgo(message.utcTime, nowMillis)
-                } else ""
-                if (agoText.isNotEmpty()) {
-                    MetaText(agoText)
-                }
-            }
-
-            // State / DX entity location line (shown on every row when known)
-            if (!compact) {
-                val context = LocalContext.current
-                val locationText = resolveLocationText(context, message)
-                if (!locationText.isNullOrEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        radio.ks3ckc.ft8af.ui.components.FT8AFIcons.Globe(
-                            color = TextFaint,
-                            size = 12.dp,
-                        )
+                // Full decoded message text (canonical FT8 frame, e.g. "K1ABC W9XYZ EN37"
+                // or "CQ POTA W1ABC FN42"). This is what was actually transmitted.
+                run {
+                    val msgText = message.getMessageText()?.trim().orEmpty()
+                    if (msgText.isNotEmpty()) {
                         Text(
-                            text = locationText,
-                            color = TextFaint,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium,
+                            text = msgText,
+                            color = TextMuted,
+                            fontFamily = GeistMonoFamily,
+                            fontSize = 12.sp,
+                            letterSpacing = 0.02.sp,
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+
+                // Metadata row: signal bar, SNR, frequency, distance, UTC time
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    SignalBar(snr = if (message.hasSnr()) message.snr else -30, width = 28.dp, height = 12.dp)
+
+                    MetaText(if (message.hasSnr()) "${message.snr} dB" else "-- dB")
+                    MetaText("${message.getFreq_hz()} Hz")
+
+                    // DT, as WSJT-X shows it: how far into our RX window this signal
+                    // started. Per-decode rather than only the averaged pill on the slot
+                    // bar, because the two answer different questions — every station
+                    // sitting at the same offset is our clock, one station out on its own
+                    // is that station's.
+                    MetaText(
+                        text = "DT ${formatDecodeDt(message.time_sec)}",
+                        color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
+                    )
+
+                    // Distance (computed from grid)
+                    if (hoistedDistanceText.isNotEmpty()) {
+                        MetaText(hoistedDistanceText)
+                    }
+
+                    // Beam heading (short-path bearing) — opt-in, for beam operators
+                    // who want to know which way to turn the antenna without opening
+                    // the QSO sheet first.
+                    if (GeneralVariables.showBeamHeading) {
+                        val headingText = computeBeamHeadingText(message)
+                        if (headingText.isNotEmpty()) {
+                            MetaText(headingText)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Relative "ago" time
+                    if (hoistedAgoText.isNotEmpty()) {
+                        MetaText(hoistedAgoText)
+                    }
+                }
+
+                // State / DX entity location line (shown on every row when known)
+                run {
+                    val context = LocalContext.current
+                    val locationText = resolveLocationText(context, message)
+                    if (!locationText.isNullOrEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            radio.ks3ckc.ft8af.ui.components.FT8AFIcons.Globe(
+                                color = TextFaint,
+                                size = 12.dp,
+                            )
+                            Text(
+                                text = locationText,
+                                color = TextFaint,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
                     }
                 }
             }
