@@ -179,8 +179,8 @@ fun DecodeRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (isTarget) {
-                        MessageLabel(text = stringResource(R.string.decode_label_calling), color = Target, bgColor = TargetSoft)
+                    for (label in decodeRowLabels(isTarget, isCQ, isToMe, compact = true)) {
+                        DecodeRowLabelChip(label)
                     }
                     Text(
                         text = hoistedMsgText,
@@ -203,7 +203,7 @@ fun DecodeRow(
                     // Unit-label text (dB/Hz/DT) is dropped here to save width;
                     // the expanded view still spells them out.
                     Box(modifier = Modifier.width(28.dp), contentAlignment = Alignment.CenterEnd) {
-                        MetaText(if (message.hasSnr()) "${message.snr}" else "--")
+                        MetaText(decodeSnrText(message.hasSnr(), message.snr, withUnit = false))
                     }
                     Box(modifier = Modifier.width(36.dp), contentAlignment = Alignment.CenterEnd) {
                         MetaText("${message.getFreq_hz()}")
@@ -240,13 +240,8 @@ fun DecodeRow(
                 ) {
                     // CALLING / TO YOU / CQ labels (can stack \u2014 e.g. target station
                     // calling CQ shows both CALLING and CQ).
-                    if (isTarget) {
-                        MessageLabel(text = stringResource(R.string.decode_label_calling), color = Target, bgColor = TargetSoft)
-                    }
-                    if (isCQ) {
-                        MessageLabel(text = stringResource(R.string.decode_label_cq), color = Accent, bgColor = AccentSoft)
-                    } else if (isToMe) {
-                        MessageLabel(text = stringResource(R.string.decode_label_to_you), color = Signal, bgColor = SignalSoft)
+                    for (label in decodeRowLabels(isTarget, isCQ, isToMe, compact = false)) {
+                        DecodeRowLabelChip(label)
                     }
 
                     // Callsign
@@ -306,7 +301,7 @@ fun DecodeRow(
                 ) {
                     SignalBar(snr = if (message.hasSnr()) message.snr else -30, width = 28.dp, height = 12.dp)
 
-                    MetaText(if (message.hasSnr()) "${message.snr} dB" else "-- dB")
+                    MetaText(decodeSnrText(message.hasSnr(), message.snr, withUnit = true))
                     MetaText("${message.getFreq_hz()} Hz")
 
                     // DT, as WSJT-X shows it: how far into our RX window this signal
@@ -405,6 +400,41 @@ internal fun decodeRowDimAlpha(isInQsoWithOther: Boolean): Float =
 internal fun secondaryFieldText(maidenGrid: String?, extraInfo: String?): String =
     maidenGrid?.takeIf { it.isNotEmpty() } ?: extraInfo?.trim().orEmpty()
 
+/** The small label chips a decode row can carry ahead of its text. */
+internal enum class DecodeRowLabel { CALLING, CQ, TO_YOU }
+
+/**
+ * Which label chips a decode row shows, in display order. Expanded rows show
+ * CALLING (the operator's target) plus CQ or TO YOU. Compact rows keep only
+ * CALLING: the single line already starts with the message text ("CQ ..." or
+ * "<my call> ..."), and the CQ/TO YOU state is also carried by the row's
+ * highlight and status pill, so repeating it would only cost width.
+ */
+internal fun decodeRowLabels(
+    isTarget: Boolean,
+    isCQ: Boolean,
+    isToMe: Boolean,
+    compact: Boolean,
+): List<DecodeRowLabel> = buildList {
+    if (isTarget) add(DecodeRowLabel.CALLING)
+    if (compact) return@buildList
+    if (isCQ) {
+        add(DecodeRowLabel.CQ)
+    } else if (isToMe) {
+        add(DecodeRowLabel.TO_YOU)
+    }
+}
+
+/**
+ * A decode's SNR as row text: "-12 dB" in the expanded metadata line, or the
+ * bare "-12" in compact, whose fixed-width column drops the unit to save room.
+ * "--" stands in when the decoder didn't report an SNR.
+ */
+internal fun decodeSnrText(hasSnr: Boolean, snr: Int, withUnit: Boolean): String {
+    val value = if (hasSnr) "$snr" else "--"
+    return if (withUnit) "$value dB" else value
+}
+
 private fun formatTimeAgo(utcMillis: Long, nowMillis: Long): String {
     val diff = ((nowMillis - utcMillis) / 1000L).coerceAtLeast(0)
     return when {
@@ -430,6 +460,18 @@ private fun resolveLocationText(
         country == "United States of America" -> "USA"
         country == "United Kingdom" -> "UK"
         else -> country
+    }
+}
+
+@Composable
+private fun DecodeRowLabelChip(label: DecodeRowLabel) {
+    when (label) {
+        DecodeRowLabel.CALLING ->
+            MessageLabel(text = stringResource(R.string.decode_label_calling), color = Target, bgColor = TargetSoft)
+        DecodeRowLabel.CQ ->
+            MessageLabel(text = stringResource(R.string.decode_label_cq), color = Accent, bgColor = AccentSoft)
+        DecodeRowLabel.TO_YOU ->
+            MessageLabel(text = stringResource(R.string.decode_label_to_you), color = Signal, bgColor = SignalSoft)
     }
 }
 

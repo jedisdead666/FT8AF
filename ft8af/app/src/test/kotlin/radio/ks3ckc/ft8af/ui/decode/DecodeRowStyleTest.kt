@@ -53,4 +53,46 @@ class DecodeRowStyleTest {
     fun secondaryFieldText_trimsExtraInfo() {
         assertThat(secondaryFieldText(maidenGrid = "", extraInfo = "  -04  ")).isEqualTo("-04")
     }
+
+    @Test
+    fun decodeRowLabels_expandedShowsCallingPlusCqOrToYou() {
+        assertThat(decodeRowLabels(isTarget = false, isCQ = true, isToMe = false, compact = false))
+            .containsExactly(DecodeRowLabel.CQ)
+        assertThat(decodeRowLabels(isTarget = false, isCQ = false, isToMe = true, compact = false))
+            .containsExactly(DecodeRowLabel.TO_YOU)
+        // The target calling CQ stacks both, CALLING first.
+        assertThat(decodeRowLabels(isTarget = true, isCQ = true, isToMe = false, compact = false))
+            .containsExactly(DecodeRowLabel.CALLING, DecodeRowLabel.CQ).inOrder()
+        // CQ wins over TO YOU if a frame somehow reads as both.
+        assertThat(decodeRowLabels(isTarget = false, isCQ = true, isToMe = true, compact = false))
+            .containsExactly(DecodeRowLabel.CQ)
+        assertThat(decodeRowLabels(isTarget = false, isCQ = false, isToMe = false, compact = false))
+            .isEmpty()
+    }
+
+    @Test
+    fun decodeRowLabels_compactKeepsOnlyCalling() {
+        assertThat(decodeRowLabels(isTarget = true, isCQ = true, isToMe = false, compact = true))
+            .containsExactly(DecodeRowLabel.CALLING)
+        assertThat(decodeRowLabels(isTarget = true, isCQ = false, isToMe = true, compact = true))
+            .containsExactly(DecodeRowLabel.CALLING)
+        // CQ and TO YOU are already carried by the message text and status pill.
+        assertThat(decodeRowLabels(isTarget = false, isCQ = true, isToMe = false, compact = true)).isEmpty()
+        assertThat(decodeRowLabels(isTarget = false, isCQ = false, isToMe = true, compact = true)).isEmpty()
+    }
+
+    @Test
+    fun decodeSnrText_expandedSpellsOutTheUnit() {
+        assertThat(decodeSnrText(hasSnr = true, snr = -12, withUnit = true)).isEqualTo("-12 dB")
+        assertThat(decodeSnrText(hasSnr = true, snr = 4, withUnit = true)).isEqualTo("4 dB")
+        assertThat(decodeSnrText(hasSnr = false, snr = 0, withUnit = true)).isEqualTo("-- dB")
+    }
+
+    @Test
+    fun decodeSnrText_compactIsTheBareNumber() {
+        assertThat(decodeSnrText(hasSnr = true, snr = -12, withUnit = false)).isEqualTo("-12")
+        assertThat(decodeSnrText(hasSnr = true, snr = 0, withUnit = false)).isEqualTo("0")
+        // No SNR from the decoder: a placeholder, never a misleading "0".
+        assertThat(decodeSnrText(hasSnr = false, snr = 0, withUnit = false)).isEqualTo("--")
+    }
 }
