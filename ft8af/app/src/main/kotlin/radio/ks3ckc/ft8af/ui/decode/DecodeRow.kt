@@ -264,6 +264,9 @@ fun DecodeRow(
                             color = TextFaint,
                             fontFamily = GeistMonoFamily,
                             fontSize = 11.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
 
@@ -379,26 +382,31 @@ internal fun decodeRowDimAlpha(isInQsoWithOther: Boolean): Float =
  * third field -- a grid locator ("EM98"), or whatever else that field held
  * ("RR73", "73", a signal report like "-04"/"R+10") when it isn't a grid.
  *
- * <p>[maidenGrid] is only ever populated by the native decoder when the
- * third field matches a strict grid shape (2 letters A-R, 2 digits -- see
- * `ft8_looks_like_grid` in ft8_decode_jni.cpp); anything else (a report
+ * <p>[maidenGrid] is only populated by the native decoder when the third
+ * field is a real grid locator (see `ft8af_looks_like_grid` in
+ * ft8_grid_shape.h, which also rejects "RR73"); anything else (a report
  * exchange, which is most of a real QSO) leaves it blank, with the actual
  * value sitting unused in [extraInfo] instead -- visible only on the raw
  * message text line, which compact mode hides entirely. Confirmed on real
- * hardware: a signal-report message's row showed nothing in this slot in
- * compact mode, next to CQ/RR73 rows that showed fine (RR73 happens to
- * match the grid-shape check by coincidence, not because it's a grid).
+ * hardware: a signal-report message's row showed nothing in this slot.
  *
- * <p>Deliberately not applied to every message type -- a blank [maidenGrid]
- * alongside a long free-text [extraInfo] (message type FREE_TEXT, which
- * also has no callsigns to show it next to) would dump the whole free-text
- * body into this narrow slot; callers should gate this on there being a
- * real callsignFrom if that matters to them. For the normal case this
- * exists for (a station-to-station exchange with real callsigns on both
- * sides), extraInfo is always short.
+ * <p>The fallback only takes a short exchange token ([isShortExchangeToken]).
+ * Longer third fields -- contest exchanges such as ARRL RTTY "TU; R 579 MA"
+ * or Field Day "R 2A EMA", which also carry a callsignFrom -- stay on the
+ * message line rather than crowding this narrow slot. Free-text messages
+ * have no callsignFrom to show this next to; callers gate on that.
  */
 internal fun secondaryFieldText(maidenGrid: String?, extraInfo: String?): String =
-    maidenGrid?.takeIf { it.isNotEmpty() } ?: extraInfo?.trim().orEmpty()
+    maidenGrid?.takeIf { it.isNotEmpty() }
+        ?: extraInfo?.trim()?.takeIf { isShortExchangeToken(it) }.orEmpty()
+
+/**
+ * Whether [token] is one of the short standard-message exchange tokens: a
+ * report ("-04", "R+10"), "RRR", "RR73" or "73" -- at most 4 characters with
+ * no spaces or ';'. Anything longer is a contest or free-form exchange.
+ */
+internal fun isShortExchangeToken(token: String): Boolean =
+    token.isNotEmpty() && token.length <= 4 && token.none { it.isWhitespace() || it == ';' }
 
 /** The small label chips a decode row can carry ahead of its text. */
 internal enum class DecodeRowLabel { CALLING, CQ, TO_YOU }
