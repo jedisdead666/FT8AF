@@ -119,7 +119,7 @@ fun DecodeRow(
             .border(1.dp, borderColor, shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 0.dp, end = 12.dp, top = if (compact) 6.dp else 10.dp, bottom = if (compact) 6.dp else 10.dp),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = if (compact) Alignment.CenterVertically else Alignment.Top,
     ) {
         // Left accent bar — pink for the current call target, amber for CQ.
         // Target wins because it's the more actionable signal for the operator.
@@ -132,7 +132,7 @@ fun DecodeRow(
             Box(
                 modifier = Modifier
                     .width(3.dp)
-                    .height(if (compact) 32.dp else 52.dp)
+                    .height(if (compact) 20.dp else 52.dp)
                     .background(accentColor, RoundedCornerShape(99.dp))
             )
             Spacer(modifier = Modifier.width(10.dp))
@@ -202,9 +202,6 @@ fun DecodeRow(
                     )
                     if (hoistedDistanceText.isNotEmpty()) {
                         MetaText(hoistedDistanceText)
-                    }
-                    if (hoistedAgoText.isNotEmpty()) {
-                        MetaText(hoistedAgoText)
                     }
                     if (hoistedStatus != null) {
                         StatusPill(status = hoistedStatus, compact = true)
