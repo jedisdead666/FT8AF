@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -143,21 +144,8 @@ fun DecodeRow(
 
         // Shared across both layouts below, computed once so compact/expanded
         // differ only in ARRANGEMENT, never in the underlying values.
-        //
-        // Grid locator, or whatever else the message's own third field held
-        // (report, RR73, 73) when it wasn't grid-shaped -- see
-        // secondaryFieldText. Free-text messages have no callsignFrom to show
-        // this next to and can carry a much longer extraInfo, so they're
-        // excluded rather than dumping the whole free-text body into this
-        // narrow slot.
-        val hoistedGrid = if (message.callsignFrom.isNullOrEmpty()) {
-            ""
-        } else {
-            secondaryFieldText(message.maidenGrid, message.extraInfo)
-        }
         val hoistedStatus = resolveQsoStatus(message)
         val hoistedDistanceText = computeDistanceText(message)
-        val hoistedAgoText = if (nowMillis > 0L) formatTimeAgo(message.utcTime, nowMillis) else ""
         // The canonical decoded frame (e.g. "K1ABC W9XYZ EN37") -- same text
         // the expanded view's second line shows. Compact uses this instead of
         // a derived callsign+grid snippet so free-text/telemetry messages
@@ -174,64 +162,90 @@ fun DecodeRow(
                 // and the status pill are additive markers carried over from
                 // the expanded view's top line; they aren't part of either
                 // merged line so they keep their own meaning here.
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    for (label in decodeRowLabels(isTarget, isCQ, isToMe, compact = true)) {
-                        DecodeRowLabelChip(label)
-                    }
-                    Text(
-                        text = hoistedMsgText,
-                        color = TextMuted,
-                        fontFamily = GeistMonoFamily,
-                        fontSize = 12.sp,
-                        letterSpacing = 0.02.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val labels = decodeRowLabels(isTarget, isCQ, isToMe, compact = true)
+                    // Which metadata columns fit next to a readable message on
+                    // this width (see compactMetaColumns); a narrow phone drops
+                    // the lowest-priority columns instead of starving the text.
+                    val columns = compactMetaColumns(
+                        availableDp = maxWidth.value,
+                        leadingDp = labels.size * COMPACT_LABEL_CHIP_DP,
+                        showHeading = GeneralVariables.showBeamHeading,
                     )
-
-                    // Fixed-width slots (reserved even when the cell's content is
-                    // absent, e.g. no distance without a grid, no pill without a
-                    // status) so dB/Hz/DT/distance/pill start at the same x on
-                    // every row instead of zig-zagging with whichever optional
-                    // cells happen to be present -- real-device measurement
-                    // showed dB's start x varying by 300+ px row to row otherwise.
-                    // Unit-label text (dB/Hz/DT) is dropped here to save width;
-                    // the expanded view still spells them out.
-                    Box(modifier = Modifier.width(28.dp), contentAlignment = Alignment.CenterEnd) {
-                        MetaText(decodeSnrText(message.hasSnr(), message.snr, withUnit = false))
-                    }
-                    Box(modifier = Modifier.width(36.dp), contentAlignment = Alignment.CenterEnd) {
-                        MetaText("${message.getFreq_hz()}")
-                    }
-                    Box(modifier = Modifier.width(32.dp), contentAlignment = Alignment.CenterEnd) {
-                        MetaText(
-                            text = formatDecodeDt(message.time_sec),
-                            color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
+                    val emphasis = compactMessageEmphasis(isToMe = isToMe, isTarget = isTarget)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(COMPACT_GAP_DP.dp),
+                    ) {
+                        for (label in labels) {
+                            DecodeRowLabelChip(label)
+                        }
+                        Text(
+                            text = hoistedMsgText,
+                            color = when (emphasis) {
+                                CompactMessageEmphasis.TO_YOU -> Signal
+                                CompactMessageEmphasis.TARGET -> Target
+                                CompactMessageEmphasis.NORMAL -> TextMuted
+                            },
+                            fontWeight = if (emphasis == CompactMessageEmphasis.NORMAL) null else FontWeight.Bold,
+                            fontFamily = GeistMonoFamily,
+                            fontSize = 12.sp,
+                            letterSpacing = 0.02.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
                         )
-                    }
-                    Box(modifier = Modifier.width(48.dp), contentAlignment = Alignment.CenterEnd) {
-                        if (hoistedDistanceText.isNotEmpty()) {
-                            MetaText(hoistedDistanceText)
+
+                        // Fixed-width slots (reserved even when the cell's content
+                        // is absent, e.g. no distance without a grid, no pill
+                        // without a status) so the columns start at the same x on
+                        // every row instead of zig-zagging with whichever optional
+                        // cells happen to be present -- real-device measurement
+                        // showed dB's start x varying by 300+ px row to row
+                        // otherwise. Unit labels are dropped here to save width;
+                        // the expanded view still spells them out.
+                        for (column in columns) {
+                            Box(modifier = Modifier.width(column.widthDp.dp), contentAlignment = Alignment.CenterEnd) {
+                                when (column) {
+                                    CompactMetaColumn.SNR ->
+                                        MetaText(decodeSnrText(message.hasSnr(), message.snr, withUnit = false))
+                                    CompactMetaColumn.FREQ ->
+                                        MetaText("${message.getFreq_hz()}")
+                                    CompactMetaColumn.DT ->
+                                        MetaText(
+                                            text = formatDecodeDt(message.time_sec),
+                                            color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
+                                        )
+                                    CompactMetaColumn.DISTANCE ->
+                                        compactDistanceText(hoistedDistanceText).takeIf { it.isNotEmpty() }
+                                            ?.let { MetaText(it) }
+                                    CompactMetaColumn.HEADING ->
+                                        computeBeamHeadingText(message).takeIf { it.isNotEmpty() }
+                                            ?.let { MetaText(it) }
+                                }
+                            }
                         }
-                    }
-                    if (GeneralVariables.showBeamHeading) {
-                        val headingText = computeBeamHeadingText(message)
-                        if (headingText.isNotEmpty()) {
-                            MetaText(headingText)
-                        }
-                    }
-                    Box(modifier = Modifier.width(80.dp), contentAlignment = Alignment.CenterEnd) {
-                        if (hoistedStatus != null) {
-                            StatusPill(status = hoistedStatus, compact = true)
+                        Box(modifier = Modifier.width(COMPACT_PILL_DP.dp), contentAlignment = Alignment.CenterEnd) {
+                            if (hoistedStatus != null) {
+                                StatusPill(status = hoistedStatus, compact = true)
+                            }
                         }
                     }
                 }
             } else {
+                // Grid locator, or whatever else the message's own third field
+                // held (report, RR73, 73) when it wasn't grid-shaped -- see
+                // secondaryFieldText. Free-text messages have no callsignFrom to
+                // show this next to, so they're excluded.
+                val hoistedGrid = if (message.callsignFrom.isNullOrEmpty()) {
+                    ""
+                } else {
+                    secondaryFieldText(message.maidenGrid, message.extraInfo)
+                }
+                val hoistedAgoText = if (nowMillis > 0L) formatTimeAgo(message.utcTime, nowMillis) else ""
+
                 // Top row: label + callsign + grid + status pill
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -282,18 +296,15 @@ fun DecodeRow(
 
                 // Full decoded message text (canonical FT8 frame, e.g. "K1ABC W9XYZ EN37"
                 // or "CQ POTA W1ABC FN42"). This is what was actually transmitted.
-                run {
-                    val msgText = message.getMessageText()?.trim().orEmpty()
-                    if (msgText.isNotEmpty()) {
-                        Text(
-                            text = msgText,
-                            color = TextMuted,
-                            fontFamily = GeistMonoFamily,
-                            fontSize = 12.sp,
-                            letterSpacing = 0.02.sp,
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
+                if (hoistedMsgText.isNotEmpty()) {
+                    Text(
+                        text = hoistedMsgText,
+                        color = TextMuted,
+                        fontFamily = GeistMonoFamily,
+                        fontSize = 12.sp,
+                        letterSpacing = 0.02.sp,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
 
                 // Metadata row: signal bar, SNR, frequency, distance, UTC time
@@ -441,6 +452,85 @@ internal fun decodeRowLabels(
 internal fun decodeSnrText(hasSnr: Boolean, snr: Int, withUnit: Boolean): String {
     val value = if (hasSnr) "$snr" else "--"
     return if (withUnit) "$value dB" else value
+}
+
+/** Gap between items in the compact row. */
+internal const val COMPACT_GAP_DP = 8
+
+/** Fixed width of the compact row's trailing status-pill slot. */
+internal const val COMPACT_PILL_DP = 80
+
+/** Width a label chip (e.g. CALLING) takes in the compact row, gap included. */
+internal const val COMPACT_LABEL_CHIP_DP = 58
+
+/**
+ * Width the compact row's message text keeps before metadata columns are
+ * dropped -- about 16 monospace characters at 12sp, enough for a standard
+ * frame such as "K1ABC W9XYZ EN37".
+ */
+internal const val COMPACT_MIN_MESSAGE_DP = 120
+
+/** The compact row's fixed-width metadata columns, in display order. */
+internal enum class CompactMetaColumn(val widthDp: Int) {
+    SNR(28),
+    FREQ(36),
+    DT(32),
+    DISTANCE(40),
+    HEADING(36),
+}
+
+/**
+ * The metadata columns the compact row shows on a row [availableDp] wide,
+ * in display order. Every row on a given screen gets the same set, so the
+ * columns line up. When they don't all fit next to [COMPACT_MIN_MESSAGE_DP]
+ * of message text (after [leadingDp] of label chips and the pill slot),
+ * columns are dropped lowest-priority first: beam heading, audio frequency,
+ * DT, then distance. SNR always stays. Without this, a 360dp phone left the
+ * message about 45dp -- or nothing once a CALLING chip was shown.
+ */
+internal fun compactMetaColumns(
+    availableDp: Float,
+    leadingDp: Int,
+    showHeading: Boolean,
+): List<CompactMetaColumn> {
+    val columns = CompactMetaColumn.values()
+        .filter { it != CompactMetaColumn.HEADING || showHeading }
+        .toMutableList()
+    val dropOrder = listOf(
+        CompactMetaColumn.HEADING,
+        CompactMetaColumn.FREQ,
+        CompactMetaColumn.DT,
+        CompactMetaColumn.DISTANCE,
+    )
+    fun required(): Int = leadingDp + COMPACT_MIN_MESSAGE_DP +
+        columns.sumOf { it.widthDp + COMPACT_GAP_DP } + COMPACT_GAP_DP + COMPACT_PILL_DP
+    for (drop in dropOrder) {
+        if (required() <= availableDp) break
+        columns.remove(drop)
+    }
+    return columns
+}
+
+/**
+ * The compact distance cell: the number without its unit ("1136 km" ->
+ * "1136"), matching the other bare-number columns and keeping a 5-digit
+ * distance inside the slot. The expanded view still shows the unit.
+ */
+internal fun compactDistanceText(distanceText: String): String =
+    distanceText.trim().substringBefore(' ')
+
+/** How the compact row emphasizes its message text. */
+internal enum class CompactMessageEmphasis { TO_YOU, TARGET, NORMAL }
+
+/**
+ * Compact rows drop the TO YOU chip and the bold colored callsign, so a reply
+ * aimed at the operator is marked by coloring the message itself instead --
+ * same priority as the expanded callsign color: to-me first, then the target.
+ */
+internal fun compactMessageEmphasis(isToMe: Boolean, isTarget: Boolean): CompactMessageEmphasis = when {
+    isToMe -> CompactMessageEmphasis.TO_YOU
+    isTarget -> CompactMessageEmphasis.TARGET
+    else -> CompactMessageEmphasis.NORMAL
 }
 
 private fun formatTimeAgo(utcMillis: Long, nowMillis: Long): String {

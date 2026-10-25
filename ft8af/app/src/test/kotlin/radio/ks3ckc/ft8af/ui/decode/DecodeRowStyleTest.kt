@@ -115,4 +115,69 @@ class DecodeRowStyleTest {
             assertThat(isShortExchangeToken(token)).isFalse()
         }
     }
+
+    // ---- compact row columns -------------------------------------------------
+    // Row widths measured on device: motorola edge 2022 (432dp screen) leaves the
+    // row ~383dp; Galaxy A32 (384dp) ~335dp; a typical 360dp phone ~311dp.
+
+    @Test
+    fun compactMetaColumns_wideRowKeepsEveryColumnInOrder() {
+        assertThat(compactMetaColumns(availableDp = 383f, leadingDp = 0, showHeading = false))
+            .containsExactly(
+                CompactMetaColumn.SNR, CompactMetaColumn.FREQ,
+                CompactMetaColumn.DT, CompactMetaColumn.DISTANCE,
+            ).inOrder()
+    }
+
+    @Test
+    fun compactMetaColumns_narrowRowsDropLowestPriorityFirst() {
+        // Galaxy A32: audio frequency goes first.
+        assertThat(compactMetaColumns(availableDp = 335f, leadingDp = 0, showHeading = false))
+            .containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DT, CompactMetaColumn.DISTANCE)
+            .inOrder()
+        // 360dp phone: then DT.
+        assertThat(compactMetaColumns(availableDp = 311f, leadingDp = 0, showHeading = false))
+            .containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DISTANCE)
+            .inOrder()
+        // Anything narrower still keeps SNR.
+        assertThat(compactMetaColumns(availableDp = 200f, leadingDp = 0, showHeading = false))
+            .containsExactly(CompactMetaColumn.SNR)
+    }
+
+    @Test
+    fun compactMetaColumns_headingGetsItsOwnSlotAndIsDroppedFirst() {
+        assertThat(compactMetaColumns(availableDp = 500f, leadingDp = 0, showHeading = true))
+            .containsExactly(
+                CompactMetaColumn.SNR, CompactMetaColumn.FREQ, CompactMetaColumn.DT,
+                CompactMetaColumn.DISTANCE, CompactMetaColumn.HEADING,
+            ).inOrder()
+        assertThat(compactMetaColumns(availableDp = 383f, leadingDp = 0, showHeading = true))
+            .doesNotContain(CompactMetaColumn.HEADING)
+    }
+
+    @Test
+    fun compactMetaColumns_aCallingChipStillLeavesRoomForTheMessage() {
+        // The review's failure case: a CALLING chip used to squeeze the message to nothing.
+        val columns = compactMetaColumns(availableDp = 383f, leadingDp = COMPACT_LABEL_CHIP_DP, showHeading = false)
+        assertThat(columns).containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DISTANCE).inOrder()
+        val used = COMPACT_LABEL_CHIP_DP + columns.sumOf { it.widthDp + COMPACT_GAP_DP } +
+            COMPACT_GAP_DP + COMPACT_PILL_DP
+        assertThat(383 - used).isAtLeast(COMPACT_MIN_MESSAGE_DP)
+    }
+
+    @Test
+    fun compactDistanceText_dropsTheUnit() {
+        assertThat(compactDistanceText("1136 km")).isEqualTo("1136")
+        assertThat(compactDistanceText("12345 km")).isEqualTo("12345")
+        assertThat(compactDistanceText("706 mi")).isEqualTo("706")
+        assertThat(compactDistanceText("")).isEmpty()
+    }
+
+    @Test
+    fun compactMessageEmphasis_marksRepliesToMeThenTheTarget() {
+        assertThat(compactMessageEmphasis(isToMe = true, isTarget = false)).isEqualTo(CompactMessageEmphasis.TO_YOU)
+        assertThat(compactMessageEmphasis(isToMe = true, isTarget = true)).isEqualTo(CompactMessageEmphasis.TO_YOU)
+        assertThat(compactMessageEmphasis(isToMe = false, isTarget = true)).isEqualTo(CompactMessageEmphasis.TARGET)
+        assertThat(compactMessageEmphasis(isToMe = false, isTarget = false)).isEqualTo(CompactMessageEmphasis.NORMAL)
+    }
 }
