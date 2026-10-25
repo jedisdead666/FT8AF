@@ -149,7 +149,6 @@ fun DecodeRow(
         // Shared across both layouts below, computed once so compact/expanded
         // differ only in ARRANGEMENT, never in the underlying values.
         val hoistedStatus = resolveQsoStatus(message)
-        val hoistedDistanceText = computeDistanceText(message)
         // The canonical decoded frame (e.g. "K1ABC W9XYZ EN37") -- same text
         // the expanded view's second line shows. Compact uses this instead of
         // a derived callsign+grid snippet so free-text/telemetry messages
@@ -223,9 +222,6 @@ fun DecodeRow(
                                             text = formatDecodeDt(message.time_sec),
                                             color = if (isDecodeDtNotable(message.time_sec)) StatusWarn else TextFaint,
                                         )
-                                    CompactMetaColumn.DISTANCE ->
-                                        compactDistanceText(hoistedDistanceText).takeIf { it.isNotEmpty() }
-                                            ?.let { MetaText(it) }
                                     CompactMetaColumn.HEADING ->
                                         computeBeamHeadingText(message).takeIf { it.isNotEmpty() }
                                             ?.let { MetaText(it) }
@@ -254,6 +250,7 @@ fun DecodeRow(
                     secondaryFieldText(message.maidenGrid, message.extraInfo)
                 }
                 val hoistedAgoText = if (nowMillis > 0L) formatTimeAgo(message.utcTime, nowMillis) else ""
+                val hoistedDistanceText = computeDistanceText(message)
 
                 // Top row: label + callsign + grid + status pill
                 Row(
@@ -484,12 +481,15 @@ internal const val COMPACT_LABEL_CHIP_DP = 58
  */
 internal const val COMPACT_MIN_MESSAGE_DP = 176
 
-/** The compact row's fixed-width metadata columns, in display order. */
+/**
+ * The compact row's fixed-width metadata columns, in display order. Distance
+ * is deliberately not one of them: the message text takes priority over it,
+ * and the expanded view still shows it.
+ */
 internal enum class CompactMetaColumn(val widthDp: Int) {
     SNR(28),
     FREQ(36),
     DT(32),
-    DISTANCE(40),
     HEADING(36),
 }
 
@@ -511,11 +511,9 @@ internal data class CompactRowLayout(
  *
  * The message text is the row's primary content, so the trailing cells give
  * way until it keeps [COMPACT_MIN_MESSAGE_DP] (after [leadingDp] of label
- * chips), in this order: beam heading, audio frequency, DT, the pill's label
- * (down to its colored dot), then distance. SNR always stays. Distance and
- * beam heading are left out entirely when [hasOperatorGrid] is false: without
- * the operator's grid no row can show them, and a reserved empty column was
- * what truncated messages on a fresh install.
+ * chips), in this order: beam heading, audio frequency, DT, then the pill's
+ * label (down to its colored dot). SNR always stays. Beam heading is left out
+ * when [hasOperatorGrid] is false, since no row could show one.
  */
 internal fun compactRowLayout(
     availableDp: Float,
@@ -524,11 +522,7 @@ internal fun compactRowLayout(
     showHeading: Boolean,
 ): CompactRowLayout {
     val columns = CompactMetaColumn.values().filter {
-        when (it) {
-            CompactMetaColumn.DISTANCE -> hasOperatorGrid
-            CompactMetaColumn.HEADING -> hasOperatorGrid && showHeading
-            else -> true
-        }
+        it != CompactMetaColumn.HEADING || (hasOperatorGrid && showHeading)
     }.toMutableList()
     var pillDotOnly = false
     fun required(): Int = leadingDp + COMPACT_MIN_MESSAGE_DP +
@@ -539,7 +533,6 @@ internal fun compactRowLayout(
         { columns.remove(CompactMetaColumn.FREQ) },
         { columns.remove(CompactMetaColumn.DT) },
         { pillDotOnly = true },
-        { columns.remove(CompactMetaColumn.DISTANCE) },
     )
     for (step in steps) {
         if (required() <= availableDp) break
@@ -547,14 +540,6 @@ internal fun compactRowLayout(
     }
     return CompactRowLayout(columns, pillDotOnly)
 }
-
-/**
- * The compact distance cell: the number without its unit ("1136 km" ->
- * "1136"), matching the other bare-number columns and keeping a 5-digit
- * distance inside the slot. The expanded view still shows the unit.
- */
-internal fun compactDistanceText(distanceText: String): String =
-    distanceText.trim().substringBefore(' ')
 
 /** How the compact row emphasizes its message text. */
 internal enum class CompactMessageEmphasis { TO_YOU, TARGET, NORMAL }

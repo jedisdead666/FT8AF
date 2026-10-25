@@ -128,10 +128,16 @@ class DecodeRowStyleTest {
     fun compactRowLayout_wideRowKeepsEverythingInOrder() {
         val layout = compactRowLayout(availableDp = 500f, leadingDp = 0, hasOperatorGrid = true, showHeading = true)
         assertThat(layout.columns).containsExactly(
-            CompactMetaColumn.SNR, CompactMetaColumn.FREQ, CompactMetaColumn.DT,
-            CompactMetaColumn.DISTANCE, CompactMetaColumn.HEADING,
+            CompactMetaColumn.SNR, CompactMetaColumn.FREQ, CompactMetaColumn.DT, CompactMetaColumn.HEADING,
         ).inOrder()
         assertThat(layout.pillDotOnly).isFalse()
+    }
+
+    @Test
+    fun compactRow_hasNoDistanceColumn() {
+        // User decision: the message text takes priority over distance in
+        // compact; expanded view still shows distance.
+        assertThat(CompactMetaColumn.values().map { it.name }).doesNotContain("DISTANCE")
     }
 
     @Test
@@ -147,29 +153,24 @@ class DecodeRowStyleTest {
 
     @Test
     fun compactRowLayout_givesUpMetadataBeforeThePillLabel() {
-        // motorola edge 2022: Hz and DT go, the full pill and distance stay.
+        // motorola edge 2022: Hz goes; DT and the full pill stay.
         val moto = compactRowLayout(availableDp = 383f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
-        assertThat(moto.columns).containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DISTANCE).inOrder()
+        assertThat(moto.columns).containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DT).inOrder()
         assertThat(moto.pillDotOnly).isFalse()
-        // Galaxy A32 with a grid: the pill shrinks to its dot before distance goes.
+        // Galaxy A32: Hz and DT go; the full pill label still fits.
         val a32 = compactRowLayout(availableDp = 335f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
-        assertThat(a32.columns).containsExactly(CompactMetaColumn.SNR, CompactMetaColumn.DISTANCE).inOrder()
-        assertThat(a32.pillDotOnly).isTrue()
-        // Very narrow: distance goes last; SNR always stays.
+        assertThat(a32.columns).containsExactly(CompactMetaColumn.SNR)
+        assertThat(a32.pillDotOnly).isFalse()
+        // Very narrow: the pill shrinks to its dot last; SNR always stays.
         val tiny = compactRowLayout(availableDp = 250f, leadingDp = 0, hasOperatorGrid = true, showHeading = false)
         assertThat(tiny.columns).containsExactly(CompactMetaColumn.SNR)
         assertThat(tiny.pillDotOnly).isTrue()
     }
 
     @Test
-    fun compactRowLayout_noOperatorGridDropsDistanceAndHeadingColumns() {
-        // A fresh install with no grid used to reserve an empty distance column.
-        val layout = compactRowLayout(availableDp = 335f, leadingDp = 0, hasOperatorGrid = false, showHeading = true)
-        assertThat(layout.columns).doesNotContain(CompactMetaColumn.DISTANCE)
+    fun compactRowLayout_noOperatorGridLeavesOutHeading() {
+        val layout = compactRowLayout(availableDp = 500f, leadingDp = 0, hasOperatorGrid = false, showHeading = true)
         assertThat(layout.columns).doesNotContain(CompactMetaColumn.HEADING)
-        // The space goes to the message, and the full pill label still fits.
-        assertThat(layout.columns).containsExactly(CompactMetaColumn.SNR)
-        assertThat(layout.pillDotOnly).isFalse()
     }
 
     @Test
@@ -178,14 +179,6 @@ class DecodeRowStyleTest {
             availableDp = 383f, leadingDp = COMPACT_LABEL_CHIP_DP, hasOperatorGrid = true, showHeading = false,
         )
         assertThat(messageRoom(383, COMPACT_LABEL_CHIP_DP, layout)).isAtLeast(COMPACT_MIN_MESSAGE_DP)
-    }
-
-    @Test
-    fun compactDistanceText_dropsTheUnit() {
-        assertThat(compactDistanceText("1136 km")).isEqualTo("1136")
-        assertThat(compactDistanceText("12345 km")).isEqualTo("12345")
-        assertThat(compactDistanceText("706 mi")).isEqualTo("706")
-        assertThat(compactDistanceText("")).isEmpty()
     }
 
     @Test
