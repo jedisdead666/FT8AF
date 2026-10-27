@@ -56,11 +56,23 @@ final class CloudlogRemoteLog {
             "MY_GRIDSQUARE", "NAME", "COMMENT", "SIG", "SIG_INFO", "MY_SIG", "MY_SIG_INFO"
     };
 
+    /**
+     * Most remote QSOs whose fields are held for the import (issue #965). Each kept QSO
+     * costs a couple of KB of heap; past this the logbook is too big to import in one pass
+     * without risking an OutOfMemoryError, so the kept fields are dropped and the import is
+     * skipped ({@link #tooLargeToImport}) while the duplicate check still works.
+     */
+    static final int MAX_KEPT_RECORDS = 20_000;
+    /** Longest kept value of a downloaded field, so one huge field can't bloat a DB row. */
+    static final int MAX_FIELD_CHARS = 1024;
+    /** As {@link #MAX_FIELD_CHARS}, for the free-text COMMENT. */
+    static final int MAX_COMMENT_CHARS = 4096;
+
     private static final class Entry {
         final long minute;
         final String stationCallsign;
-        /** All fields of the remote QSO, upper-case keys; null unless keepRecords. */
-        final Map<String, String> record;
+        /** Import fields of the remote QSO, upper-case keys; null unless kept. */
+        Map<String, String> record;
 
         Entry(long minute, String stationCallsign, Map<String, String> record) {
             this.minute = minute;
@@ -73,6 +85,9 @@ final class CloudlogRemoteLog {
     /** Every entry, in download order, so unmatched QSOs are imported oldest first. */
     private final List<Entry> entries = new ArrayList<>();
     private final boolean keepRecords;
+    private final int maxKeptRecords;
+    private int keptRecords;
+    private boolean tooLargeToImport;
     private int size;
     private String defaultStationCallsign = "";
 
@@ -83,12 +98,26 @@ final class CloudlogRemoteLog {
 
     /** @param keepRecords keep each remote QSO's fields, for {@link Pairing#unmatchedRemote}. */
     CloudlogRemoteLog(boolean keepRecords) {
+        this(keepRecords, MAX_KEPT_RECORDS);
+    }
+
+    /** As {@link #CloudlogRemoteLog(boolean)} with a different {@link #MAX_KEPT_RECORDS}. */
+    CloudlogRemoteLog(boolean keepRecords, int maxKeptRecords) {
         this.keepRecords = keepRecords;
+        this.maxKeptRecords = maxKeptRecords;
     }
 
     /** Number of remote QSOs recorded. */
     int size() {
         return size;
+    }
+
+    /**
+     * True when more QSOs came down than {@link #MAX_KEPT_RECORDS}: no fields are kept, so
+     * {@link Pairing#unmatchedRemote} is empty, but the duplicate check still sees them all.
+     */
+    boolean tooLargeToImport() {
+        return tooLargeToImport;
     }
 
     /** Records one remote QSO. Rows without a call or a parseable date/time are ignored. */
@@ -113,8 +142,20 @@ final class CloudlogRemoteLog {
             list = new ArrayList<>();
             byCallBandMode.put(key, list);
         }
-        Entry e = new Entry(minute, normalizeCall(stationCallsign),
-                keepRecords && record != null ? importFieldsOf(record) : null);
+        Map<String, String> kept = null;
+        if (keepRecords && record != null && !tooLargeToImport) {
+            if (keptRecords < maxKeptRecords) {
+                kept = importFieldsOf(record);
+                keptRecords++;
+            } else {
+                // Too many to import in one pass: free what is held rather than run the
+                // heap out (that crash would repeat on every launch via auto-sync).
+                tooLargeToImport = true;
+                for (Entry held : entries) held.record = null;
+                keptRecords = 0;
+            }
+        }
+        Entry e = new Entry(minute, normalizeCall(stationCallsign), kept);
         list.add(e);
         entries.add(e);
         size++;
@@ -252,7 +293,9 @@ final class CloudlogRemoteLog {
         JSONObject obj;
         try {
             obj = new JSONObject(body);
-        } catch (Exception e) {
+        } catch (Exception | StackOverflowError e) {
+            // org.json parses recursively: a short body of nested brackets from a hostile
+            // server (or a man-in-the-middle on http://) overflows the stack.
             return -1;
         }
         if (!"successful".equalsIgnoreCase(obj.optString("status"))) return -1;
@@ -294,13 +337,18 @@ final class CloudlogRemoteLog {
     /**
      * The {@link #IMPORT_FIELDS} of a remote QSO. Older Wavelog ignores the requested field
      * list and sends every ADIF field; keeping only these holds memory down on a big logbook
-     * and imports the same fields from either reply shape.
+     * and imports the same fields from either reply shape. Values are cut to
+     * {@link #MAX_FIELD_CHARS} ({@link #MAX_COMMENT_CHARS} for COMMENT): a multi-MB field
+     * would make the inserted row too big for a CursorWindow and break every later read of
+     * the logbook.
      */
-    private static Map<String, String> importFieldsOf(Map<String, String> record) {
+    static Map<String, String> importFieldsOf(Map<String, String> record) {
         Map<String, String> kept = new HashMap<>();
         for (String f : IMPORT_FIELDS) {
             String v = record.get(f);
-            if (v != null) kept.put(f, v);
+            if (v == null) continue;
+            int max = "COMMENT".equals(f) ? MAX_COMMENT_CHARS : MAX_FIELD_CHARS;
+            kept.put(f, v.length() > max ? v.substring(0, max) : v);
         }
         return kept;
     }

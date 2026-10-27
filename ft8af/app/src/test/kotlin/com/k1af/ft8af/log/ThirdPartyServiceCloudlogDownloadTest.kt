@@ -44,6 +44,8 @@ class ThirdPartyServiceCloudlogDownloadTest {
     private var listingFailure = ""
     private val pageRequests = mutableListOf<JSONObject>()
     private val uploads = mutableListOf<String>()
+    /** When set, every api/qso upload fails with this reason. */
+    private var uploadFailure: String? = null
 
     @Before
     fun setUp() {
@@ -81,8 +83,14 @@ class ThirdPartyServiceCloudlogDownloadTest {
                         body
                     }
                     "api/qso" -> {
-                        uploads.add(req.getString("string"))
-                        """{"status":"created"}"""
+                        val failure = uploadFailure
+                        if (failure != null) {
+                            failureOut?.append(failure)
+                            null
+                        } else {
+                            uploads.add(req.getString("string"))
+                            """{"status":"created"}"""
+                        }
                     }
                     else -> throw AssertionError("unexpected POST $path")
                 }
@@ -440,5 +448,62 @@ class ThirdPartyServiceCloudlogDownloadTest {
             ThirdPartyService.contactsListingSupport("""{"status":"failed","reason":"station id"}""", ""),
         ).isNull()
         assertThat(ThirdPartyService.contactsListingSupport(null, "Timed out: connect")).isNull()
+    }
+
+    /** A page holding [n] distinct remote QSOs (a minute apart, so none pair with each other). */
+    private fun bigPage(lastId: Long, n: Int): String {
+        val qsos = (0 until n).map { i ->
+            val minutes = i % (24 * 60)
+            val day = 5 + i / (24 * 60)
+            """{"CALL":"W${i}AA","QSO_DATE":"202608${"%02d".format(day)}",""" +
+                """"TIME_ON":"${"%02d%02d00".format(minutes / 60, minutes % 60)}","BAND":"20m",""" +
+                """"MODE":"FT8","STATION_CALLSIGN":"K1AF"}"""
+        }
+        return """{"status":"successful","lastfetchedid":$lastId,"qsos":[${qsos.joinToString(",")}]}"""
+    }
+
+    @Test
+    fun `a logbook over the import limit inserts nothing and says why, but still dedupes`() {
+        // Holding every QSO's fields for a logbook this size risks an OutOfMemoryError,
+        // which auto-sync would hit again on every launch.
+        insertLocal("W0AA", timeOn = "000000") // pending; Wavelog already has it (first QSO below)
+        remotePages["1"] = mutableListOf(bigPage(10, CloudlogRemoteLog.MAX_KEPT_RECORDS + 1), emptyPage)
+        remotePages["2"] = mutableListOf(emptyPage)
+
+        val result = sync()
+
+        assertThat(result.cloudlogDownloaded).isEqualTo(0)
+        assertThat(rows()).hasSize(1)
+        assertThat(result.cloudlogError).contains("more than ${CloudlogRemoteLog.MAX_KEPT_RECORDS} QSOs")
+        // The duplicate check still ran on the whole download: W0AA isn't re-uploaded.
+        assertThat(result.cloudlogAlreadyPresent).isEqualTo(1)
+        assertThat(uploads).isEmpty()
+    }
+
+    @Test
+    fun `a station id rejection replaces an earlier download error`() {
+        insertLocal("N3ZZ")
+        remotePages["1"] = mutableListOf(bigPage(10, CloudlogRemoteLog.MAX_KEPT_RECORDS + 1), emptyPage)
+        remotePages["2"] = mutableListOf(emptyPage)
+        val rejection = "HTTP 401: {\"reason\":\"missing or wrong api key\"}"
+        uploadFailure = rejection
+
+        val result = sync()
+
+        // The rejection is the one with a fix-it hint, so it's the one reported.
+        assertThat(result.cloudlogError).isEqualTo(rejection)
+    }
+
+    @Test
+    fun `an unreadable page from a hostile server doesn't crash the sync`() {
+        insertLocal("N3ZZ")
+        // org.json parses recursively; this used to be an uncaught StackOverflowError.
+        remotePages["1"] = mutableListOf("{\"a\":".repeat(200_000))
+        remotePages["2"] = mutableListOf(emptyPage)
+
+        val result = sync()
+
+        assertThat(result.cloudlogDownloaded).isEqualTo(0)
+        assertThat(uploads).hasSize(1)
     }
 }

@@ -335,4 +335,63 @@ class CloudlogRemoteLogTest {
             "COMMENT",
         )
     }
+
+    private fun bareRecord(call: String, time: String = "143500") = mapOf(
+        "CALL" to call, "QSO_DATE" to "20260805", "TIME_ON" to time, "BAND" to "20m",
+        "MODE" to "FT8", "STATION_CALLSIGN" to "K1AF",
+    )
+
+    @Test
+    fun `records are kept up to the limit`() {
+        val remote = CloudlogRemoteLog(true, 2)
+        remote.addRecord(bareRecord("W1AW"))
+        remote.addRecord(bareRecord("K2XX"))
+
+        assertThat(remote.tooLargeToImport()).isFalse()
+        assertThat(remote.pair(emptyList()).unmatchedRemote).hasSize(2)
+    }
+
+    @Test
+    fun `one record past the limit drops every kept field but keeps the duplicate check`() {
+        val remote = CloudlogRemoteLog(true, 2)
+        remote.addRecord(bareRecord("W1AW"))
+        remote.addRecord(bareRecord("K2XX"))
+        remote.addRecord(bareRecord("N3ZZ"))
+
+        assertThat(remote.tooLargeToImport()).isTrue()
+        assertThat(remote.size()).isEqualTo(3)
+        assertThat(remote.pair(emptyList()).unmatchedRemote).isEmpty()
+        assertThat(remote.contains("N3ZZ", "20260805", "143500", "20m", "FT8", "K1AF")).isTrue()
+    }
+
+    @Test
+    fun `a duplicate-check-only log never reports too large`() {
+        val remote = CloudlogRemoteLog(false, 1)
+        remote.addRecord(bareRecord("W1AW"))
+        remote.addRecord(bareRecord("K2XX"))
+
+        assertThat(remote.tooLargeToImport()).isFalse()
+    }
+
+    @Test
+    fun `kept field values are cut to their limits`() {
+        val kept = CloudlogRemoteLog.importFieldsOf(
+            bareRecord("W1AW") + mapOf(
+                "COMMENT" to "c".repeat(CloudlogRemoteLog.MAX_COMMENT_CHARS + 50),
+                "NAME" to "n".repeat(CloudlogRemoteLog.MAX_FIELD_CHARS + 50),
+            ),
+        )
+
+        assertThat(kept["COMMENT"]).hasLength(CloudlogRemoteLog.MAX_COMMENT_CHARS)
+        assertThat(kept["NAME"]).hasLength(CloudlogRemoteLog.MAX_FIELD_CHARS)
+        assertThat(kept["CALL"]).isEqualTo("W1AW")
+    }
+
+    @Test
+    fun `a deeply nested page is rejected instead of overflowing the stack`() {
+        val remote = CloudlogRemoteLog(true)
+
+        assertThat(remote.addPage("{\"a\":".repeat(200_000))).isEqualTo(-1L)
+        assertThat(remote.size()).isEqualTo(0)
+    }
 }
