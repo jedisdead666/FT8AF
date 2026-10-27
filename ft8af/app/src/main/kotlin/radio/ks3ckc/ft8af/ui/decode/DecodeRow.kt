@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -172,14 +173,26 @@ fun DecodeRow(
                     letterSpacing = 0.02.sp,
                 )
 
-                // Grid locator
-                val grid = message.maidenGrid ?: ""
+                // Grid locator, or whatever else the message's own third field held
+                // (report, RR73, 73) when it wasn't grid-shaped -- see
+                // secondaryFieldText. Free-text messages have no callsignFrom to
+                // show this next to and can carry a much longer extraInfo, so
+                // they're excluded rather than dumping the whole free-text body
+                // into this narrow slot.
+                val grid = if (message.callsignFrom.isNullOrEmpty()) {
+                    ""
+                } else {
+                    secondaryFieldText(message.maidenGrid, message.extraInfo)
+                }
                 if (grid.isNotEmpty()) {
                     Text(
                         text = grid,
                         color = TextFaint,
                         fontFamily = GeistMonoFamily,
                         fontSize = 11.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
@@ -293,6 +306,37 @@ fun DecodeRow(
  */
 internal fun decodeRowDimAlpha(isInQsoWithOther: Boolean): Float =
     if (isInQsoWithOther) 0.8f else 1f
+
+/**
+ * The text to show next to the callsign for the message's own exchanged
+ * third field -- a grid locator ("EM98"), or whatever else that field held
+ * ("RR73", "73", a signal report like "-04"/"R+10") when it isn't a grid.
+ *
+ * <p>[maidenGrid] is only populated by the native decoder when the third
+ * field is a real grid locator (see `ft8af_looks_like_grid` in
+ * ft8_grid_shape.h, which also rejects "RR73"); anything else (a report
+ * exchange, which is most of a real QSO) leaves it blank, with the actual
+ * value sitting unused in [extraInfo] instead -- visible only on the raw
+ * message text line, which compact mode hides entirely. Confirmed on real
+ * hardware: a signal-report message's row showed nothing in this slot.
+ *
+ * <p>The fallback only takes a short exchange token ([isShortExchangeToken]).
+ * Longer third fields -- contest exchanges such as ARRL RTTY "TU; R 579 MA"
+ * or Field Day "R 2A EMA", which also carry a callsignFrom -- stay on the
+ * message line rather than crowding this narrow slot. Free-text messages
+ * have no callsignFrom to show this next to; callers gate on that.
+ */
+internal fun secondaryFieldText(maidenGrid: String?, extraInfo: String?): String =
+    maidenGrid?.takeIf { it.isNotEmpty() }
+        ?: extraInfo?.trim()?.takeIf { isShortExchangeToken(it) }.orEmpty()
+
+/**
+ * Whether [token] is one of the short standard-message exchange tokens: a
+ * report ("-04", "R+10"), "RRR", "RR73" or "73" -- at most 4 characters with
+ * no spaces or ';'. Anything longer is a contest or free-form exchange.
+ */
+internal fun isShortExchangeToken(token: String): Boolean =
+    token.isNotEmpty() && token.length <= 4 && token.none { it.isWhitespace() || it == ';' }
 
 private fun formatTimeAgo(utcMillis: Long, nowMillis: Long): String {
     val diff = ((nowMillis - utcMillis) / 1000L).coerceAtLeast(0)
