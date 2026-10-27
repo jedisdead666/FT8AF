@@ -31,6 +31,9 @@ import java.util.Set;
  * callsigns are compared when both sides have one; a local row without one is compared
  * against the station location uploads go to, when that is known.
  *
+ * <p>When built with {@code keepRecords}, each remote QSO also keeps its full field map, so
+ * the QSOs with no local row can be imported (issue #965, {@link #pair}).
+ *
  * <p>Pure (no network, no Android types besides org.json) so it is unit-testable.
  */
 final class CloudlogRemoteLog {
@@ -43,28 +46,94 @@ final class CloudlogRemoteLog {
             "CALL", "QSO_DATE", "TIME_ON", "BAND", "MODE", "SUBMODE", "STATION_CALLSIGN"
     };
 
+    /**
+     * Fields requested when the QSOs missing locally are imported (issue #965): enough to
+     * build a full QSLTable row through the ADIF import's {@link QSLRecord} constructor.
+     */
+    static final String[] IMPORT_FIELDS = {
+            "CALL", "QSO_DATE", "TIME_ON", "QSO_DATE_OFF", "TIME_OFF", "BAND", "FREQ",
+            "MODE", "SUBMODE", "RST_SENT", "RST_RCVD", "GRIDSQUARE", "STATION_CALLSIGN",
+            "MY_GRIDSQUARE", "NAME", "COMMENT", "SIG", "SIG_INFO", "MY_SIG", "MY_SIG_INFO"
+    };
+
+    /**
+     * Most remote QSOs whose fields are held for the import (issue #965). Each kept QSO
+     * costs a couple of KB of heap; past this the logbook is too big to import in one pass
+     * without risking an OutOfMemoryError, so the kept fields are dropped and the import is
+     * skipped ({@link #tooLargeToImport}) while the duplicate check still works.
+     */
+    static final int MAX_KEPT_RECORDS = 20_000;
+    /** Longest kept value of a downloaded field, so one huge field can't bloat a DB row. */
+    static final int MAX_FIELD_CHARS = 1024;
+    /** As {@link #MAX_FIELD_CHARS}, for the free-text COMMENT. */
+    static final int MAX_COMMENT_CHARS = 4096;
+
     private static final class Entry {
         final long minute;
         final String stationCallsign;
+        /** Import fields of the remote QSO, upper-case keys; null unless kept. */
+        Map<String, String> record;
 
-        Entry(long minute, String stationCallsign) {
+        Entry(long minute, String stationCallsign, Map<String, String> record) {
             this.minute = minute;
             this.stationCallsign = stationCallsign;
+            this.record = record;
         }
     }
 
     private final Map<String, List<Entry>> byCallBandMode = new HashMap<>();
+    /** Every entry, in download order, so unmatched QSOs are imported oldest first. */
+    private final List<Entry> entries = new ArrayList<>();
+    private final boolean keepRecords;
+    private final int maxKeptRecords;
+    private int keptRecords;
+    private boolean tooLargeToImport;
     private int size;
     private String defaultStationCallsign = "";
+
+    /** A log for the duplicate check only; remote QSOs are not kept field by field. */
+    CloudlogRemoteLog() {
+        this(false);
+    }
+
+    /** @param keepRecords keep each remote QSO's fields, for {@link Pairing#unmatchedRemote}. */
+    CloudlogRemoteLog(boolean keepRecords) {
+        this(keepRecords, MAX_KEPT_RECORDS);
+    }
+
+    /** As {@link #CloudlogRemoteLog(boolean)} with a different {@link #MAX_KEPT_RECORDS}. */
+    CloudlogRemoteLog(boolean keepRecords, int maxKeptRecords) {
+        this.keepRecords = keepRecords;
+        this.maxKeptRecords = maxKeptRecords;
+    }
 
     /** Number of remote QSOs recorded. */
     int size() {
         return size;
     }
 
+    /**
+     * True when more QSOs came down than {@link #MAX_KEPT_RECORDS}: no fields are kept, so
+     * {@link Pairing#unmatchedRemote} is empty, but the duplicate check still sees them all.
+     */
+    boolean tooLargeToImport() {
+        return tooLargeToImport;
+    }
+
     /** Records one remote QSO. Rows without a call or a parseable date/time are ignored. */
     void add(String call, String qsoDate, String timeOn, String band, String mode,
              String submode, String stationCallsign) {
+        add(call, qsoDate, timeOn, band, mode, submode, stationCallsign, null);
+    }
+
+    /** Records one remote QSO from its field map (upper-case ADIF names). */
+    void addRecord(Map<String, String> r) {
+        add(r.get("CALL"), r.get("QSO_DATE"), r.get("TIME_ON"), r.get("BAND"),
+                r.get("MODE"), r.get("SUBMODE"), r.get("STATION_CALLSIGN"), r);
+    }
+
+    private void add(String call, String qsoDate, String timeOn, String band, String mode,
+                     String submode, String stationCallsign, Map<String, String> record) {
         long minute = epochMinute(qsoDate, timeOn);
         String key = key(call, band, AdifFormat.resolveImportMode(mode, submode));
         if (key == null || minute == Long.MIN_VALUE) return;
@@ -73,7 +142,22 @@ final class CloudlogRemoteLog {
             list = new ArrayList<>();
             byCallBandMode.put(key, list);
         }
-        list.add(new Entry(minute, normalizeCall(stationCallsign)));
+        Map<String, String> kept = null;
+        if (keepRecords && record != null && !tooLargeToImport) {
+            if (keptRecords < maxKeptRecords) {
+                kept = importFieldsOf(record);
+                keptRecords++;
+            } else {
+                // Too many to import in one pass: free what is held rather than run the
+                // heap out (that crash would repeat on every launch via auto-sync).
+                tooLargeToImport = true;
+                for (Entry held : entries) held.record = null;
+                keptRecords = 0;
+            }
+        }
+        Entry e = new Entry(minute, normalizeCall(stationCallsign), kept);
+        list.add(e);
+        entries.add(e);
         size++;
     }
 
@@ -124,6 +208,31 @@ final class CloudlogRemoteLog {
      * the remote log; each call starts from the full set.
      */
     Set<Integer> matchPresent(List<Local> locals) {
+        return pair(locals).presentLocals;
+    }
+
+    /** The result of pairing local QSOs with remote ones, one to one ({@link #pair}). */
+    static final class Pairing {
+        /** Indexes of the local QSOs that have a remote QSO. */
+        final Set<Integer> presentLocals;
+        /**
+         * Field maps of the remote QSOs no local QSO was paired with, in download order.
+         * Empty unless the log was built with {@code keepRecords}.
+         */
+        final List<Map<String, String>> unmatchedRemote;
+
+        Pairing(Set<Integer> presentLocals, List<Map<String, String>> unmatchedRemote) {
+            this.presentLocals = presentLocals;
+            this.unmatchedRemote = unmatchedRemote;
+        }
+    }
+
+    /**
+     * Pairs local QSOs with remote ones the way {@link #matchPresent} does, and also says
+     * which remote QSOs are left over. Pass every local QSO, synced or not, so a remote
+     * QSO counts as missing locally only when no local row accounts for it (issue #965).
+     */
+    Pairing pair(List<Local> locals) {
         List<Candidate> candidates = new ArrayList<>();
         for (int i = 0; i < locals.size(); i++) {
             Local l = locals.get(i);
@@ -151,7 +260,11 @@ final class CloudlogRemoteLog {
             present.add(c.local);
             used.add(c.entry);
         }
-        return present;
+        List<Map<String, String>> unmatched = new ArrayList<>();
+        for (Entry e : entries) {
+            if (e.record != null && !used.contains(e)) unmatched.add(e.record);
+        }
+        return new Pairing(present, unmatched);
     }
 
     private static final class Candidate {
@@ -180,7 +293,9 @@ final class CloudlogRemoteLog {
         JSONObject obj;
         try {
             obj = new JSONObject(body);
-        } catch (Exception e) {
+        } catch (Exception | StackOverflowError e) {
+            // org.json parses recursively: a short body of nested brackets from a hostile
+            // server (or a man-in-the-middle on http://) overflows the stack.
             return -1;
         }
         if (!"successful".equalsIgnoreCase(obj.optString("status"))) return -1;
@@ -191,8 +306,7 @@ final class CloudlogRemoteLog {
             for (int i = 0; i < qsos.length(); i++) {
                 JSONObject q = qsos.optJSONObject(i);
                 if (q == null) continue;
-                add(str(q, "CALL"), str(q, "QSO_DATE"), str(q, "TIME_ON"), str(q, "BAND"),
-                        str(q, "MODE"), str(q, "SUBMODE"), str(q, "STATION_CALLSIGN"));
+                addRecord(jsonRecord(q));
             }
         } else {
             String adif = str(obj, "adif");
@@ -216,13 +330,49 @@ final class CloudlogRemoteLog {
             } catch (Exception e) {
                 continue;
             }
-            add(r.get("CALL"), r.get("QSO_DATE"), r.get("TIME_ON"), r.get("BAND"),
-                    r.get("MODE"), r.get("SUBMODE"), r.get("STATION_CALLSIGN"));
+            addRecord(r);
         }
+    }
+
+    /**
+     * The {@link #IMPORT_FIELDS} of a remote QSO. Older Wavelog ignores the requested field
+     * list and sends every ADIF field; keeping only these holds memory down on a big logbook
+     * and imports the same fields from either reply shape. Values are cut to
+     * {@link #MAX_FIELD_CHARS} ({@link #MAX_COMMENT_CHARS} for COMMENT): a multi-MB field
+     * would make the inserted row too big for a CursorWindow and break every later read of
+     * the logbook.
+     */
+    static Map<String, String> importFieldsOf(Map<String, String> record) {
+        Map<String, String> kept = new HashMap<>();
+        for (String f : IMPORT_FIELDS) {
+            String v = record.get(f);
+            if (v == null) continue;
+            int max = "COMMENT".equals(f) ? MAX_COMMENT_CHARS : MAX_FIELD_CHARS;
+            kept.put(f, v.length() > max ? v.substring(0, max) : v);
+        }
+        return kept;
+    }
+
+    /** A JSON QSO as a field map: upper-case names, string values, nulls and blanks dropped. */
+    private static Map<String, String> jsonRecord(JSONObject q) {
+        Map<String, String> r = new HashMap<>();
+        java.util.Iterator<String> names = q.keys();
+        while (names.hasNext()) {
+            String name = names.next();
+            String value = str(q, name);
+            if (value != null && !value.isEmpty()) r.put(name.toUpperCase(Locale.US), value);
+        }
+        return r;
     }
 
     /** JSON request body for one page of {@code api/get_contacts_adif}. */
     static String pageRequestJson(String apiKey, String stationId, long fetchFromId, int limit) {
+        return pageRequestJson(apiKey, stationId, fetchFromId, limit, FIELDS);
+    }
+
+    /** Same, asking for {@code fields} (e.g. {@link #IMPORT_FIELDS}). */
+    static String pageRequestJson(String apiKey, String stationId, long fetchFromId, int limit,
+                                  String[] fields) {
         try {
             JSONObject req = new JSONObject();
             req.put("key", apiKey);
@@ -230,9 +380,9 @@ final class CloudlogRemoteLog {
             req.put("fetchfromid", fetchFromId);
             req.put("limit", limit);
             req.put("output_format", "json");
-            JSONArray fields = new JSONArray();
-            for (String f : FIELDS) fields.put(f);
-            req.put("fields", fields);
+            JSONArray names = new JSONArray();
+            for (String f : fields) names.put(f);
+            req.put("fields", names);
             return req.toString();
         } catch (Exception e) {
             return null;

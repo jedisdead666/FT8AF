@@ -242,6 +242,7 @@
     <string name="log_sync_progress_count">%1$d من %2$d QSOs</string>
     <string name="log_sync_cloudlog_accepted">Cloudlog / Wavelog / Nextlog: %1$d مقبول</string>
     <string name="log_sync_cloudlog_already_present">Cloudlog / Wavelog / Nextlog: %1$d موجود بالفعل في السجل</string>
+    <string name="log_sync_cloudlog_downloaded">Cloudlog / Wavelog / Nextlog: تم تنزيل %1$d</string>
     <string name="log_sync_qrz_accepted">QRZ: %1$d مقبول</string>
     <string name="log_sync_nothing_to_upload">لا QSOs في السجل للرفع بعد.</string>
     <string name="log_sync_working">جارٍ العمل…</string>
@@ -514,6 +515,9 @@
     <string name="settings_qrz_profile_lookup_desc">اسم المستخدم + كلمة المرور لواجهة QRZ XML API (الصور الرمزية)</string>
     <string name="settings_cloudlog">Cloudlog / Wavelog / Nextlog</string>
     <string name="settings_cloudlog_desc">رفع QSOs تلقائياً إلى نسخة Cloudlog أو Wavelog أو Nextlog</string>
+    <string name="settings_cloudlog_download">تنزيل QSOs من Wavelog عند المزامنة</string>
+    <string name="settings_cloudlog_download_desc">تضيف المزامنة أيضاً QSOs الموجودة في سجل Wavelog وغير الموجودة في هذا السجل. لا تُرسل إلى QRZ أو World Radio League.</string>
+    <string name="settings_cloudlog_download_unsupported">يتطلب Wavelog: هذا الخادم لا يستطيع سرد QSOs الخاصة به.</string>
 
     <!-- ===== Settings: advanced ===== -->
     <string name="settings_ptt_delay">تأخير PTT</string>

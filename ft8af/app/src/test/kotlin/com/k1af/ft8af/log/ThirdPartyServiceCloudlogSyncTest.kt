@@ -209,13 +209,32 @@ class ThirdPartyServiceCloudlogSyncTest {
     @Test
     fun `paging is capped per station`() {
         insertQso("N3ZZ")
-        remotePages["1"] = (1..300).map { page(it.toLong(), "W1AW") }.toMutableList()
+        remotePages["1"] = (1..ThirdPartyService.REMOTE_MAX_PAGES + 100).map { page(it.toLong(), "W1AW") }.toMutableList()
         remotePages["2"] = mutableListOf(emptyPage)
 
         ThirdPartyService.syncAllQSOs(db, null)
 
-        assertThat(pageRequests.count { it.getString("station_id") == "1" }).isEqualTo(200)
+        assertThat(pageRequests.count { it.getString("station_id") == "1" }).isEqualTo(ThirdPartyService.REMOTE_MAX_PAGES)
         assertThat(uploads).hasSize(1)
+    }
+
+    @Test
+    fun `reading stops once the logbook passes the overall cap`() {
+        val saved = ThirdPartyService.remoteMaxQsos
+        ThirdPartyService.remoteMaxQsos = 3
+        try {
+            insertQso("N3ZZ")
+            remotePages["1"] = (1..10).map { page(it.toLong(), "W1AW") }.toMutableList()
+            remotePages["2"] = (11..20).map { page(it.toLong(), "K2XX") }.toMutableList()
+
+            ThirdPartyService.syncAllQSOs(db, null)
+
+            // Three one-QSO pages reach the cap; station 2 is never asked.
+            assertThat(pageRequests).hasSize(3)
+            assertThat(uploads).hasSize(1)
+        } finally {
+            ThirdPartyService.remoteMaxQsos = saved
+        }
     }
 
     @Test
