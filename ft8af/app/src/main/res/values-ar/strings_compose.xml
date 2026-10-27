@@ -139,6 +139,7 @@
     <string name="qsopanel_qsoing_with">إجراء QSO مع %1$s</string>
     <string name="qsopanel_waiting_for">في انتظار %1$s</string>
     <string name="qsopanel_tap_to_view">انقر للعرض ↗</string>
+    <string name="qsopanel_sent_report">أُرسل %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">في انتظار الرسائل...</string>
     <string name="qsopanel_log_action">تسجيل</string>
@@ -574,6 +575,7 @@
     <string name="settings_username_hint">اسم مستخدم QRZ.com الخاص بك</string>
     <string name="settings_password">كلمة المرور</string>
     <string name="settings_enabled_bands_dialog_desc">لن تظهر النطاقات المخفية في منتقيات التردد.</string>
+    <string name="settings_enabled_bands_keep_one">يجب أن يبقى نطاق واحد على الأقل مفعّلاً.</string>
     <string name="settings_select_serial_port">اختر المنفذ التسلسلي</string>
     <string name="settings_tx_volume_advice">عدِّل مباشرة — يستخدم TX التالي هذا المستوى. راقب ALC في راديوك وخفِّضه حتى يلامس الخط بالكاد.</string>
     <string name="settings_input_volume">مستوى صوت الإدخال</string>

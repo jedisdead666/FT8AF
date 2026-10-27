@@ -351,3 +351,16 @@ hamlib_feed_out="$tmp/ft8_hamlib_feed_test"
     -Wall -Wno-deprecated-non-prototype -Wno-unused-function \
     -I "$here" "${hamlib_feed_srcs[@]}" -lpthread -o "$hamlib_feed_out"
 "$hamlib_feed_out"
+
+# Grid-shape tests: the shared check (ft8_grid_shape.h) behind a real-device
+# finding -- "RR73" (the protocol's reply token, never a locator) passed the
+# old per-file checks by coincidence, so every RR73 reply earned a false
+# "NEW GRID" badge. Header-only, no ft8_lib deps.
+grid_shape_srcs=(
+    "$here/test_grid_shape.c"
+)
+grid_shape_out="$tmp/ft8_grid_shape_test"
+"$CC" -std=c11 -O2 -D_GNU_SOURCE \
+    -Wall -Wno-deprecated-non-prototype -Wno-unused-function \
+    -I "$here" "${grid_shape_srcs[@]}" -o "$grid_shape_out"
+"$grid_shape_out"

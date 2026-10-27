@@ -99,6 +99,7 @@
     <string name="qsopanel_qsoing_with">%1$s と QSO 中</string>
     <string name="qsopanel_waiting_for">%1$s を待機中</string>
     <string name="qsopanel_tap_to_view">タップして表示 ↗</string>
+    <string name="qsopanel_sent_report">送信 %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">メッセージを待機中...</string>
 
@@ -476,6 +477,7 @@
     <string name="settings_username_hint">あなたの QRZ.com ユーザー名</string>
     <string name="settings_password">パスワード</string>
     <string name="settings_enabled_bands_dialog_desc">非表示のバンドは周波数ピッカーに表示されません。</string>
+    <string name="settings_enabled_bands_keep_one">少なくとも1つのバンドを有効にしておく必要があります。</string>
     <string name="settings_select_serial_port">シリアルポートを選択</string>
     <string name="settings_tx_volume_advice">ライブで調整してください — 次の TX でこのレベルが使われます。無線機の ALC を見ながら、ラインに軽く触れる程度まで下げてください。</string>
     <string name="settings_input_volume">入力音量</string>

@@ -128,6 +128,7 @@
     <string name="qsopanel_qsoing_with">QSO з %1$s</string>
     <string name="qsopanel_waiting_for">Очікування %1$s</string>
     <string name="qsopanel_tap_to_view">торкніться, щоб переглянути ↗</string>
+    <string name="qsopanel_sent_report">надіс. %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">Очікування повідомлень...</string>
     <string name="qsopanel_log_action">ЖУРНАЛ</string>
@@ -555,6 +556,7 @@
     <string name="settings_username_hint">Ваше ім’я користувача QRZ.com</string>
     <string name="settings_password">Пароль</string>
     <string name="settings_enabled_bands_dialog_desc">Приховані діапазони не з’являтимуться у виборі частоти.</string>
+    <string name="settings_enabled_bands_keep_one">Принаймні один діапазон має залишатися увімкненим.</string>
     <string name="settings_select_serial_port">Виберіть послідовний порт</string>
     <string name="settings_tx_volume_advice">Регулюйте наживо — ваш наступний TX використає цей рівень. Стежте за ALC радіо й зменшуйте, доки воно лише торкається лінії.</string>
     <string name="settings_input_volume">Гучність входу</string>

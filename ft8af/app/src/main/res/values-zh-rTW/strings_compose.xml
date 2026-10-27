@@ -99,6 +99,7 @@
     <string name="qsopanel_qsoing_with">正在與 %1$s 通聯</string>
     <string name="qsopanel_waiting_for">等待 %1$s 中</string>
     <string name="qsopanel_tap_to_view">點按以檢視 ↗</string>
+    <string name="qsopanel_sent_report">已發 %1$s</string>
     <string name="qsopanel_tx_message">TX：%1$s</string>
     <string name="qsopanel_waiting_messages">等待訊息中…</string>
 
@@ -476,6 +477,7 @@
     <string name="settings_username_hint">您的 QRZ.com 使用者名稱</string>
     <string name="settings_password">密碼</string>
     <string name="settings_enabled_bands_dialog_desc">隱藏的波段不會出現在頻率選擇器中。</string>
+    <string name="settings_enabled_bands_keep_one">至少需要保留一個已啟用的波段。</string>
     <string name="settings_select_serial_port">選擇序列埠</string>
     <string name="settings_tx_volume_advice">即時調整 — 您下次 TX 將使用此音量。注意您無線電的 ALC，並向下調整直到剛好碰到界線。</string>
     <string name="settings_input_volume">輸入音量</string>

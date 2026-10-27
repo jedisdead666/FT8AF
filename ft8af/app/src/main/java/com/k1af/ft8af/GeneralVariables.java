@@ -15,6 +15,7 @@ import com.k1af.ft8af.callsign.CallsignInfo;
 import com.k1af.ft8af.connector.ConnectMode;
 import com.k1af.ft8af.database.ControlMode;
 import com.k1af.ft8af.database.DatabaseOpr;
+import com.k1af.ft8af.ft8listener.DecodeDepth;
 import com.k1af.ft8af.ft8transmit.QslRecordList;
 import com.k1af.ft8af.html.HtmlContext;
 import com.k1af.ft8af.rigs.BaseRigOperation;
@@ -65,12 +66,14 @@ public class GeneralVariables {
     // (verticals/wires) don't need.
     public static boolean showBeamHeading = false;
 
-    // Deep decode (subtract-and-redecode + extra LDPC iterations) is on by default so the app
-    // pulls weak signals out from under strong ones the way WSJT-X does at its default depth.
-    // A persisted "deepMode" config row still overrides this; only installs that never touched
-    // the setting pick up the new default. See ModeProfile#deepDecodeBudgetMillis for the loop
-    // time bound.
-    public static boolean deepDecodeMode = true;//Whether deep decode mode is enabled
+    // Decode depth (see DecodeDepth: FAST/BALANCED/DEEP). DEEP -- the old
+    // "deepMode" boolean's on state -- is the default, so the app pulls weak
+    // signals out from under strong ones the way WSJT-X does at its default
+    // depth; a persisted "decodeDepth" row overrides this, and an install
+    // that only ever had the retired "deepMode" row migrates from it once
+    // (see DatabaseOpr's hydration). See ModeProfile#deepDecodeBudgetMillis
+    // for the subtract-and-redecode loop's time bound.
+    public static int decodeDepth = DecodeDepth.DEEP;
 
     // Hold the screen awake while the app is in the foreground. On by default —
     // that was the hard-coded behaviour before this became a setting — but a long
@@ -175,6 +178,11 @@ public class GeneralVariables {
     public static volatile boolean savePerBandOutputLevel = false;
     //Serialized band=level CSV ("20m=60,40m=85"); parsed/updated in PerBandOutputLevel.kt.
     public static volatile String perBandOutputLevels = "";
+    //Save RX input volume per band (issue #927), defaults off. Same volatile
+    //convention; serialized band=percent CSV ("20m=100,10m=160", 0..200),
+    //parsed/updated in PerBandInputLevel.kt.
+    public static volatile boolean savePerBandInputLevel = false;
+    public static volatile String perBandInputLevels = "";
 
     //Auto-select a clear TX offset when calling CQ (issue #418), defaults off.
     //volatile: written from the config-load thread + Settings toggle, read from

@@ -128,6 +128,7 @@
     <string name="qsopanel_qsoing_with">QSO z %1$s</string>
     <string name="qsopanel_waiting_for">Oczekiwanie na %1$s</string>
     <string name="qsopanel_tap_to_view">dotknij, aby zobaczyć ↗</string>
+    <string name="qsopanel_sent_report">wysłano %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">Oczekiwanie na wiadomości...</string>
     <string name="qsopanel_log_action">ZAPISZ</string>
@@ -555,6 +556,7 @@
     <string name="settings_username_hint">Twoja nazwa użytkownika QRZ.com</string>
     <string name="settings_password">Hasło</string>
     <string name="settings_enabled_bands_dialog_desc">Ukryte pasma nie pojawią się w wyborze częstotliwości.</string>
+    <string name="settings_enabled_bands_keep_one">Co najmniej jedno pasmo musi pozostać włączone.</string>
     <string name="settings_select_serial_port">Wybierz port szeregowy</string>
     <string name="settings_tx_volume_advice">Dostosuj na żywo — następne TX użyje tego poziomu. Obserwuj ALC radia i zmniejszaj, aż ledwo dotyka linii.</string>
     <string name="settings_input_volume">Głośność wejścia</string>

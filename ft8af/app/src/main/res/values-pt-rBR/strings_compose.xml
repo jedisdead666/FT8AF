@@ -137,6 +137,7 @@
     <string name="qsopanel_qsoing_with">QSO com %1$s</string>
     <string name="qsopanel_waiting_for">Aguardando %1$s</string>
     <string name="qsopanel_tap_to_view">toque para ver ↗</string>
+    <string name="qsopanel_sent_report">enviado %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">Aguardando mensagens...</string>
     <string name="qsopanel_log_action">LOG</string>
@@ -487,6 +488,9 @@
     <string name="settings_per_band_volume">Salvar Nível de Saída por Banda</string>
     <string name="settings_per_band_volume_desc">Memoriza o volume de TX separadamente para cada banda e o restaura ao trocar de banda</string>
     <string name="per_band_volume_restored">Volume de TX %1$d%% restaurado para %2$s</string>
+    <string name="settings_per_band_input_volume">Salvar Volume de Entrada por Banda</string>
+    <string name="settings_per_band_input_volume_desc">Memoriza o volume de entrada (RX) separadamente para cada banda e o restaura ao trocar de banda</string>
+    <string name="per_band_input_volume_restored">Volume de entrada %1$d%% restaurado para %2$s</string>
 
     <!-- ===== Settings: transmission ===== -->
     <string name="settings_tx_rx_split">Split TX/RX</string>
@@ -644,6 +648,7 @@
     <string name="settings_username_hint">Seu nome de usuário no QRZ.com</string>
     <string name="settings_password">Senha</string>
     <string name="settings_enabled_bands_dialog_desc">Bandas ocultas não aparecerão nos seletores de frequência.</string>
+    <string name="settings_enabled_bands_keep_one">Pelo menos uma banda deve permanecer ativada.</string>
     <string name="settings_select_serial_port">Selecionar Porta Serial</string>
     <string name="settings_tx_volume_advice">Ajuste ao vivo — seu próximo TX usará este nível. Observe o ALC do seu rádio e reduza até que ele quase não toque a linha.</string>
     <string name="settings_input_volume">Volume de Entrada</string>
