@@ -1282,10 +1282,12 @@ public class FT8TransmitSignal {
             // Hold the last symbol for its full period before keying up.
             if (!stopped) sleepUntil(startNs + (tones.length - skip) * periodNs);
         } finally {
-            onDoTransmitted.sendQmxCatCommand(QmxCatTones.KEY_UP);
+            boolean keyUp = QmxCatTones.keyUpAfterTones(txRestartPending, isTransmitting);
+            if (keyUp) onDoTransmitted.sendQmxCatCommand(QmxCatTones.KEY_UP);
             GeneralVariables.fileLog(String.format(java.util.Locale.ROOT,
                     "playFT8Signal: QMX CAT tones done, %d TA commands, worst symbol lateness %.1f ms%s",
-                    sent, worstLateUs / 1000.0, stopped ? " (stopped)" : ""));
+                    sent, worstLateUs / 1000.0,
+                    stopped ? (keyUp ? " (stopped)" : " (swapping message, still keyed)") : ""));
         }
     }
 
