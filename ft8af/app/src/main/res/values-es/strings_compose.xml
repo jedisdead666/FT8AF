@@ -99,6 +99,7 @@
     <string name="qsopanel_qsoing_with">QSO con %1$s</string>
     <string name="qsopanel_waiting_for">Esperando a %1$s</string>
     <string name="qsopanel_tap_to_view">toca para ver ↗</string>
+    <string name="qsopanel_sent_report">enviado %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">Esperando mensajes...</string>
 
@@ -484,6 +485,7 @@
     <string name="settings_username_hint">Tu usuario de QRZ.com</string>
     <string name="settings_password">Contraseña</string>
     <string name="settings_enabled_bands_dialog_desc">Las bandas ocultas no aparecerán en los selectores de frecuencia.</string>
+    <string name="settings_enabled_bands_keep_one">Al menos una banda debe permanecer activada.</string>
     <string name="settings_select_serial_port">Seleccionar puerto serie</string>
     <string name="settings_tx_volume_advice">Ajústalo en vivo — tu próximo TX usa este nivel. Vigila el ALC de tu radio y bájalo hasta que apenas roce la línea.</string>
     <string name="settings_input_volume">Volumen de entrada</string>
@@ -545,6 +547,8 @@
     <string name="cq_offset_moved">Desplazamiento de CQ movido a un hueco libre: %1$d Hz</string>
     <string name="settings_auto_clear_tx">Offset de TX libre automático</string>
     <string name="settings_auto_clear_tx_desc">Al llamar CQ, elige un hueco libre según la actividad reciente de la banda y se aparta si se ocupa</string>
+    <string name="settings_auto_clear_tx_min">Offset automático mínimo</string>
+    <string name="settings_auto_clear_tx_min_desc">La selección automática nunca elige un offset por debajo de este. Súbelo para dejar los armónicos de audio fuera de la banda de paso</string>
     <string name="tune_content_description">Tune: inicia el sintonizador del equipo o transmite una portadora continua para ajustar la antena</string>
     <string name="tune_stopped_timeout">Tune detenido tras %1$d s</string>
     <string name="tune_blocked_tx">Detén el CQ/QSO antes de usar Tune</string>

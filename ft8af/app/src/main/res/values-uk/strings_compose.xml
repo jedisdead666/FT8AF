@@ -128,6 +128,7 @@
     <string name="qsopanel_qsoing_with">QSO з %1$s</string>
     <string name="qsopanel_waiting_for">Очікування %1$s</string>
     <string name="qsopanel_tap_to_view">торкніться, щоб переглянути ↗</string>
+    <string name="qsopanel_sent_report">надіс. %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">Очікування повідомлень...</string>
     <string name="qsopanel_log_action">ЖУРНАЛ</string>
@@ -555,6 +556,7 @@
     <string name="settings_username_hint">Ваше ім’я користувача QRZ.com</string>
     <string name="settings_password">Пароль</string>
     <string name="settings_enabled_bands_dialog_desc">Приховані діапазони не з’являтимуться у виборі частоти.</string>
+    <string name="settings_enabled_bands_keep_one">Принаймні один діапазон має залишатися увімкненим.</string>
     <string name="settings_select_serial_port">Виберіть послідовний порт</string>
     <string name="settings_tx_volume_advice">Регулюйте наживо — ваш наступний TX використає цей рівень. Стежте за ALC радіо й зменшуйте, доки воно лише торкається лінії.</string>
     <string name="settings_input_volume">Гучність входу</string>
@@ -581,6 +583,8 @@
     <string name="cq_offset_moved">Зсув CQ перенесено на вільне місце: %1$d Гц</string>
     <string name="settings_auto_clear_tx">Автовибір вільного зсуву TX</string>
     <string name="settings_auto_clear_tx_desc">Під час виклику CQ обирає вільне місце за нещодавньою активністю діапазону і зміщується, якщо воно займається</string>
+    <string name="settings_auto_clear_tx_min">Найнижчий автозсув</string>
+    <string name="settings_auto_clear_tx_min_desc">Автовибір ніколи не обирає зсув нижче цього. Підвищте, щоб гармоніки аудіо не потрапляли в смугу пропускання</string>
     <string name="tune_content_description">Tune: запускає тюнер трансивера або передає безперервну несучу для налаштування антени</string>
     <string name="tune_stopped_timeout">Tune зупинено через %1$d с</string>
     <string name="tune_blocked_tx">Зупиніть CQ/QSO перед використанням Tune</string>

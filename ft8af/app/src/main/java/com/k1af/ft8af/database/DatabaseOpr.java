@@ -30,6 +30,7 @@ import com.k1af.ft8af.R;
 import com.k1af.ft8af.callsign.CallsignDatabase;
 import com.k1af.ft8af.callsign.CallsignInfo;
 import com.k1af.ft8af.connector.ConnectMode;
+import com.k1af.ft8af.ft8listener.DecodeDepth;
 import com.k1af.ft8af.ft8signal.FT8Package;
 import com.k1af.ft8af.log.AdifFormat;
 import com.k1af.ft8af.log.AdifRecord;
@@ -1505,7 +1506,7 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                                    boolean appendToAdifFile) {
         if (record.getToCallsign() == null) {
             if (afterInsertQSLData!=null){
-                afterInsertQSLData.doAfterInsert(true,true);//Invalid QSL
+                afterInsertQSLData.doAfterInsert(true,true,false);//Invalid QSL: not written at all
             }
             return false;
         }
@@ -1608,7 +1609,12 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                 com.k1af.ft8af.log.AdifLogFile.logQso(context, record);
             }
             if (afterInsertQSLData!=null){
-                afterInsertQSLData.doAfterInsert(false,true);//New QSL
+                // record.isInvalid as the WARNING flag here, not the isInvalid param:
+                // this record was genuinely inserted (it has a callsign), so it must
+                // still count as added, not skipped -- QSLRecord's own flag (set by,
+                // e.g., an unparseable RST_SENT/RST_RCVD or FREQ) only means one field
+                // was dropped to a fallback value, which callers can tally separately.
+                afterInsertQSLData.doAfterInsert(false,true,record.isInvalid);//New QSL, possibly with a dropped field
             }
 
         } else {
@@ -1670,7 +1676,7 @@ public class DatabaseOpr extends SQLiteOpenHelper {
             }
 
             if (afterInsertQSLData!=null){
-                afterInsertQSLData.doAfterInsert(false,false);//Already exists, QSL needs updating
+                afterInsertQSLData.doAfterInsert(false,false,record.isInvalid);//Already exists, QSL needs updating, possibly with a dropped field
             }
         }
         return true;
@@ -2981,8 +2987,26 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                 if (name.equalsIgnoreCase("perBandOutputLevels")) {//Per-band TX output levels ("20m=60,40m=85")
                     GeneralVariables.perBandOutputLevels = result == null ? "" : result;
                 }
+                if (name.equalsIgnoreCase("perBandInputLevel")) {//Save RX input volume per band (issue #927), defaults off
+                    GeneralVariables.savePerBandInputLevel = "1".equals(result);
+                }
+                if (name.equalsIgnoreCase("perBandInputLevels")) {//Per-band RX input volumes ("20m=100,10m=160")
+                    GeneralVariables.perBandInputLevels = result == null ? "" : result;
+                }
                 if (name.equalsIgnoreCase("autoClearTxFreq")) {//Auto-select clear CQ offset (issue #418)
                     GeneralVariables.autoClearTxFreq = "1".equals(result);
+                }
+                if (name.equalsIgnoreCase("autoClearTxMinFreq")) {//Lowest auto-clear offset (issue #938)
+                    //Defensive parse: settings import (#382) can feed anything here.
+                    //Null/non-numeric keeps the default; ClearFrequencyFinder clamps the range.
+                    if (result != null) {
+                        try {
+                            GeneralVariables.autoClearTxMinFreq =
+                                    com.k1af.ft8af.ft8transmit.ClearFrequencyFinder.clampUserMinOffsetHz(
+                                            Integer.parseInt(result.trim()));
+                        } catch (NumberFormatException ignored) {
+                        }
+                    }
                 }
                 if (name.equalsIgnoreCase("tuneMaxOnSeconds")) {//Tune carrier hard cap (issue #408)
                     //Defensive parse: settings import (#382) can feed anything here.
@@ -3127,8 +3151,21 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                 if (name.equalsIgnoreCase("usbAudioOutputPid")) {
                     GeneralVariables.usbAudioOutputProductId = parseConfigInt(result, 0);
                 }
-                if (name.equalsIgnoreCase("deepMode")) {//Deep decode mode
-                    GeneralVariables.deepDecodeMode = "1".equals(result);
+                if (name.equalsIgnoreCase("deepMode")) {
+                    // Legacy fast/deep boolean, superseded by "decodeDepth" (3-way:
+                    // FAST/BALANCED/DEEP). Only applied as a migration for an install
+                    // that predates decodeDepth and has never had its own row written —
+                    // getConfigByKey is a direct, order-independent DB check (empty
+                    // string means no row), so this is correct regardless of which of
+                    // the two rows this hydration pass happens to visit first.
+                    if (getConfigByKey("decodeDepth").isEmpty()) {
+                        GeneralVariables.decodeDepth =
+                                "1".equals(result) ? DecodeDepth.DEEP : DecodeDepth.FAST;
+                    }
+                }
+                if (name.equalsIgnoreCase("decodeDepth")) {
+                    GeneralVariables.decodeDepth =
+                            DecodeDepth.clamp(parseConfigInt(result, DecodeDepth.DEEP));
                 }
                 if (name.equalsIgnoreCase("keepScreenOn")) {//Hold the screen awake in foreground
                     // "1".equals(result), not result.equals("1"): a null config value
