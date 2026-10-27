@@ -2437,9 +2437,15 @@ public class MainViewModel extends ViewModel {
         return rigIsQmx ? AudioChannelSelect.LEFT : AudioChannelSelect.BOTH;
     }
 
-    /** Whether {@code rig} is a QRP Labs QMX driven through hamlib. */
+    /**
+     * Whether {@code rig} is a QRP Labs QMX, through either rig-list entry: the
+     * hamlib backend or the native {@link QrpLabsQmxRig}. The RX pause and the
+     * LEFT TX channel default work around the radio's USB audio, so they apply
+     * whichever CAT driver talks to it.
+     */
     static boolean isQmxRig(BaseRig rig) {
-        return rig instanceof HamlibRig && ((HamlibRig) rig).isQmx();
+        return rig instanceof QrpLabsQmxRig
+                || (rig instanceof HamlibRig && ((HamlibRig) rig).isQmx());
     }
 
     /**
