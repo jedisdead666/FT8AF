@@ -128,6 +128,7 @@
     <string name="qsopanel_qsoing_with">%1$s ile QSO yapılıyor</string>
     <string name="qsopanel_waiting_for">%1$s bekleniyor</string>
     <string name="qsopanel_tap_to_view">görüntülemek için dokunun ↗</string>
+    <string name="qsopanel_sent_report">gönderilen %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">Mesajlar bekleniyor...</string>
     <string name="qsopanel_log_action">GÜNLÜK</string>
@@ -547,6 +548,7 @@
     <string name="settings_username_hint">QRZ.com kullanıcı adınız</string>
     <string name="settings_password">Parola</string>
     <string name="settings_enabled_bands_dialog_desc">Gizli bantlar frekans seçicilerde görünmez.</string>
+    <string name="settings_enabled_bands_keep_one">En az bir bant etkin kalmalıdır.</string>
     <string name="settings_select_serial_port">Seri Port Seç</string>
     <string name="settings_tx_volume_advice">Canlı ayarlayın — bir sonraki TX\'iniz bu düzeyi kullanır. Radyonuzun ALC\'sini izleyin ve çizgiye değecek kadar düşürün.</string>
     <string name="settings_input_volume">Giriş Ses Düzeyi</string>

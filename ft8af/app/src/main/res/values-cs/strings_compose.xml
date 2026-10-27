@@ -139,6 +139,7 @@
     <string name="qsopanel_qsoing_with">QSO s %1$s</string>
     <string name="qsopanel_waiting_for">Čekání na %1$s</string>
     <string name="qsopanel_tap_to_view">klepnutím zobrazit ↗</string>
+    <string name="qsopanel_sent_report">odesláno %1$s</string>
     <string name="qsopanel_tx_message">TX: %1$s</string>
     <string name="qsopanel_waiting_messages">Čekání na zprávy...</string>
     <string name="qsopanel_log_action">ZAPSAT</string>
@@ -566,6 +567,7 @@
     <string name="settings_username_hint">Vaše uživatelské jméno QRZ.com</string>
     <string name="settings_password">Heslo</string>
     <string name="settings_enabled_bands_dialog_desc">Skrytá pásma se neobjeví ve výběru frekvencí.</string>
+    <string name="settings_enabled_bands_keep_one">Alespoň jedno pásmo musí zůstat povolené.</string>
     <string name="settings_select_serial_port">Vyberte sériový port</string>
     <string name="settings_tx_volume_advice">Upravujte naživo — vaše příští TX použije tuto úroveň. Sledujte ALC svého rádia a stahujte, dokud se právě nedotýká čáry.</string>
     <string name="settings_input_volume">Vstupní hlasitost</string>
