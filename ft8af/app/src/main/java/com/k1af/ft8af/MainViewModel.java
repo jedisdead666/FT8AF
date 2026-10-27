@@ -114,6 +114,7 @@ import com.k1af.ft8af.rigs.KenwoodTS2000Rig;
 import com.k1af.ft8af.rigs.KenwoodTS440Rig;
 import com.k1af.ft8af.rigs.KenwoodTS570Rig;
 import com.k1af.ft8af.rigs.KenwoodTS590Rig;
+import com.k1af.ft8af.rigs.QrpLabsQmxRig;
 import com.k1af.ft8af.rigs.OnRigStateChanged;
 import com.k1af.ft8af.rigs.TrUSDXRig;
 import com.k1af.ft8af.rigs.Wolf_sdr_450Rig;
@@ -2453,9 +2454,15 @@ public class MainViewModel extends ViewModel {
         return rigIsQmx ? AudioChannelSelect.LEFT : AudioChannelSelect.BOTH;
     }
 
-    /** Whether {@code rig} is a QRP Labs QMX driven through hamlib. */
+    /**
+     * Whether {@code rig} is a QRP Labs QMX, through either rig-list entry: the
+     * hamlib backend or the native {@link QrpLabsQmxRig}. The RX pause and the
+     * LEFT TX channel default work around the radio's USB audio, so they apply
+     * whichever CAT driver talks to it.
+     */
     static boolean isQmxRig(BaseRig rig) {
-        return rig instanceof HamlibRig && ((HamlibRig) rig).isQmx();
+        return rig instanceof QrpLabsQmxRig
+                || (rig instanceof HamlibRig && ((HamlibRig) rig).isQmx());
     }
 
     /**
@@ -2548,6 +2555,9 @@ public class MainViewModel extends ViewModel {
                 break;
             case InstructionSet.KENWOOD_TS590:
                 baseRig = new KenwoodTS590Rig();//KENWOOD TS590
+                break;
+            case InstructionSet.QRPLABS_QMX:
+                baseRig = new QrpLabsQmxRig();//QRP Labs QMX (TS-590 CAT, DATA mode MD6;)
                 break;
             case InstructionSet.GUOHE_Q900:
                 baseRig = new GuoHeQ900Rig();//GuoHe Q900
