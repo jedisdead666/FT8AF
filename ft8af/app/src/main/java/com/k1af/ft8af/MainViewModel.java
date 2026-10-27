@@ -1044,7 +1044,6 @@ public class MainViewModel extends ViewModel {
                         isQmxRig(baseRig),
                         hamRecorder.isMicSource(),
                         hamRecorder.getMicRecorder().isUsingUsbDirect(),
-                        GeneralVariables.audioOutputDeviceId == -1,
                         GeneralVariables.usbAudioInputVendorId,
                         GeneralVariables.usbAudioInputProductId,
                         GeneralVariables.usbAudioOutputVendorId,
@@ -1154,6 +1153,24 @@ public class MainViewModel extends ViewModel {
                 }
                 SafeExecutor.tryExecute(sendWaveDataThreadPool,
                         new SendWaveDataRunnable(baseRig, msg));
+            }
+
+            @Override
+            public boolean supportQmxCatTones() {
+                return GeneralVariables.qmxCatTones
+                        && GeneralVariables.controlMode == ControlMode.CAT
+                        && baseRig instanceof HamlibRig
+                        && ((HamlibRig) baseRig).isQmx()
+                        && baseRig.isConnected()
+                        && baseRig.getConnector() != null;
+            }
+
+            @Override
+            public void sendQmxCatCommand(String command) {
+                BaseRig rig = baseRig;
+                if (rig == null || rig.getConnector() == null) return;
+                rig.getConnector().sendData(
+                        command.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
             }
 
         }, new OnTransmitSuccess() {//when QSO is successful
@@ -2469,19 +2486,21 @@ public class MainViewModel extends ViewModel {
      *       {@code HamRecorder.doOnWaveDataReceived}'s {@code isRunning} check);
      *   <li>RX must not already be USB-direct (raw libusb capture, a
      *       different HAL path with no ALSA proxy to conflict over);
-     *   <li>TX must not be USB-direct output either (that path is separately,
-     *       already broken -- {@code LIBUSB_ERROR_IO} -- and conflating the
-     *       two bugs would make either one harder to fix);
      *   <li>the input and output VID:PID must both be set and match -- two
      *       different USB devices, or a non-USB default mic/speaker, have no
      *       reason to share this HAL's single ALSA card.
      * </ul>
+     *
+     * <p>USB-direct TX output pauses too: it takes the rig's streaming
+     * interface away from the kernel driver, and with the HAL's capture still
+     * open on the same device every iso submit failed with
+     * {@code LIBUSB_ERROR_IO} (motorola edge 2022 + QMX). The reference app
+     * that drives the QMX to full level over raw USB stops capture first.
      */
     static boolean shouldPauseRxCaptureForTx(boolean rigIsQmx, boolean rxIsMicSource,
-            boolean rxIsUsbDirect, boolean txIsUsbDirectOutput,
-            int usbInputVendorId, int usbInputProductId,
+            boolean rxIsUsbDirect, int usbInputVendorId, int usbInputProductId,
             int usbOutputVendorId, int usbOutputProductId) {
-        if (!rigIsQmx || !rxIsMicSource || rxIsUsbDirect || txIsUsbDirectOutput) {
+        if (!rigIsQmx || !rxIsMicSource || rxIsUsbDirect) {
             return false;
         }
         return usbInputVendorId != 0

@@ -299,7 +299,7 @@ public class HamlibRig extends BaseRig {
         c.sendData("Q90;".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
     }
 
-    /** True when this rig is the QRP Labs QMX (see {@link #QRPLABS_QMX_MODEL_ID}). */
+    /** True for the QRP Labs QMX, which can transmit from CAT tone commands. */
     public boolean isQmx() {
         return modelId == QRPLABS_QMX_MODEL_ID;
     }

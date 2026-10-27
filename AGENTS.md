@@ -382,13 +382,34 @@ every "over"/TUNE key-down: `MainViewModel`'s shared `beginKeying()`/
 items above) now calls `HamRecorder.pauseForTx()`/`resumeAfterTx()`, gated by
 `MainViewModel.shouldPauseRxCaptureForTx()`: only for the QRP Labs QMX, and
 only when RX is actually an Android capture session (not a LAN rig, not
-already USB-direct) on the *same* USB VID:PID as TX's output (not USB-direct
-output either, which is separately broken for unrelated reasons). Keep the
-QMX gate: a matching VID:PID alone is true for every single-cable USB rig
-(IC-7300, IC-705, IC-9700, FT-991A, Digirig, SignaLink...), and pausing RX
-there blanks the waterfall during TX and breaks full-duplex satellite
-monitoring for a HAL conflict that was only ever confirmed with a QMX.
-Widen it only on a confirmed report from another rig. Pauses nest (a tune
-carrier and an over can overlap), so `HamRecorder` counts them, and
-`MicRecorder.stopRecord()` joins the old reader thread so a quick
-resume can't leave two readers on one `AudioRecord`.
+already USB-direct) on the *same* USB VID:PID as TX's output. USB-direct TX
+output pauses too: with the HAL's capture still open on the same rig, every
+libusb iso submit failed with `LIBUSB_ERROR_IO`. Keep the QMX gate: a
+matching VID:PID alone is true for every single-cable USB rig (IC-7300,
+IC-705, IC-9700, FT-991A, Digirig, SignaLink...), and pausing RX there blanks
+the waterfall during TX and breaks full-duplex satellite monitoring for a HAL
+conflict that was only ever confirmed with a QMX. Widen it only on a
+confirmed report from another rig. Pauses nest (a tune carrier and an over
+can overlap), so `HamRecorder` counts them, and `MicRecorder.stopRecord()`
+joins the old reader thread so a quick resume can't leave two readers on one
+`AudioRecord`.
+
+**6. Some phones can't drive the QMX hard enough over audio at all; use CAT
+tones.** On a motorola edge 2022 the QMX's input meter read 1–2 bars (it
+needs 3 to transmit) with FT8AF's waveform at full scale. `dumpsys
+media.audio_flinger` showed why: the TX track at -6 dB with an OEM Dolby
+"Music Listener" effect on its session, at media volume 15/15, neither
+user-switchable (the Dolby settings app was disabled on that phone). A
+LoudnessEnhancer boost and even disabling the Dolby effect on our own
+session (it can be done via AudioEffect's hidden constructor) did not reach
+3 bars. What works is the QMX's own `TA` CAT command (firmware 1.04 CAT
+manual): in Digi mode `TAnnnn.nn;` transmits a carrier at dial + that audio
+frequency, the first TA after `TX;` keys down with a shaped envelope, and
+`TA0;` keys up. Sending one TA per symbol on the symbol clock gives exact
+FSK with no audio path. That is how another Android FT8 app drives the same
+radio at full power (its logcat: "QMX CAT TA in DIGI ... (no audio to the
+radio)"). FT8AF does this when Settings > Radio & Audio > "QMX: Send Tones
+over CAT" is on (`QmxCatTones`, `FT8TransmitSignal.playViaQmxCatTones`).
+Symbol timing measured 0.3 ms worst-case on that phone. USB-direct TX output
+is no substitute: it detaches the kernel audio driver, so Android's RX
+capture is gone until a replug.
