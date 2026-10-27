@@ -2,6 +2,8 @@ package com.k1af.ft8af;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.k1af.ft8af.rigs.HamlibRig;
+
 import org.junit.Test;
 
 /**
@@ -26,7 +28,7 @@ public class MainViewModelRxTxUsbConflictTest {
     @Test
     public void micSourceSharingTheUsbDevice_pauses() {
         assertThat(MainViewModel.shouldPauseRxCaptureForTx(
-                /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
+                /* rigIsQmx= */ true, /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
                 /* txIsUsbDirectOutput= */ false,
                 VID_A, PID_A, VID_A, PID_A)).isTrue();
     }
@@ -37,7 +39,7 @@ public class MainViewModelRxTxUsbConflictTest {
         // doOnWaveDataReceived gates on isRunning -- pausing here would
         // spuriously drop their audio too, not just this HAL's.
         assertThat(MainViewModel.shouldPauseRxCaptureForTx(
-                /* rxIsMicSource= */ false, /* rxIsUsbDirect= */ false,
+                /* rigIsQmx= */ true, /* rxIsMicSource= */ false, /* rxIsUsbDirect= */ false,
                 /* txIsUsbDirectOutput= */ false,
                 VID_A, PID_A, VID_A, PID_A)).isFalse();
     }
@@ -48,7 +50,7 @@ public class MainViewModelRxTxUsbConflictTest {
         // is also independently broken for other reasons and shouldn't be
         // conflated with this fix.
         assertThat(MainViewModel.shouldPauseRxCaptureForTx(
-                /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ true,
+                /* rigIsQmx= */ true, /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ true,
                 /* txIsUsbDirectOutput= */ false,
                 VID_A, PID_A, VID_A, PID_A)).isFalse();
     }
@@ -58,7 +60,7 @@ public class MainViewModelRxTxUsbConflictTest {
         // USB-Direct TX output is a separate, already-broken path
         // (LIBUSB_ERROR_IO) -- don't conflate the two bugs.
         assertThat(MainViewModel.shouldPauseRxCaptureForTx(
-                /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
+                /* rigIsQmx= */ true, /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
                 /* txIsUsbDirectOutput= */ true,
                 VID_A, PID_A, VID_A, PID_A)).isFalse();
     }
@@ -68,7 +70,7 @@ public class MainViewModelRxTxUsbConflictTest {
         // Two distinct USB devices (or a USB mic with a non-USB/system
         // output) have no reason to share one ALSA card.
         assertThat(MainViewModel.shouldPauseRxCaptureForTx(
-                /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
+                /* rigIsQmx= */ true, /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
                 /* txIsUsbDirectOutput= */ false,
                 VID_A, PID_A, VID_B, PID_B)).isFalse();
     }
@@ -78,7 +80,7 @@ public class MainViewModelRxTxUsbConflictTest {
         // 0:0 is "no USB device configured" (phone mic / default speaker on
         // both sides) -- matching on 0:0 would be a false positive.
         assertThat(MainViewModel.shouldPauseRxCaptureForTx(
-                /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
+                /* rigIsQmx= */ true, /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
                 /* txIsUsbDirectOutput= */ false,
                 0, 0, 0, 0)).isFalse();
     }
@@ -86,8 +88,28 @@ public class MainViewModelRxTxUsbConflictTest {
     @Test
     public void sameVendorDifferentProduct_neverPaused() {
         assertThat(MainViewModel.shouldPauseRxCaptureForTx(
-                /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
+                /* rigIsQmx= */ true, /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
                 /* txIsUsbDirectOutput= */ false,
                 VID_A, PID_A, VID_A, PID_B)).isFalse();
+    }
+
+    @Test
+    public void nonQmxRigSharingOneUsbCodec_neverPaused() {
+        // An IC-7300 / IC-705 / Digirig / SignaLink on one USB cable also has
+        // matching input and output VID:PID. Pausing those would blank the
+        // waterfall during TX and break full-duplex satellite monitoring for a
+        // HAL conflict only ever confirmed with the QMX.
+        assertThat(MainViewModel.shouldPauseRxCaptureForTx(
+                /* rigIsQmx= */ false, /* rxIsMicSource= */ true, /* rxIsUsbDirect= */ false,
+                /* txIsUsbDirectOutput= */ false,
+                VID_A, PID_A, VID_A, PID_A)).isFalse();
+    }
+
+    @Test
+    public void isQmxRig_onlyForTheHamlibQmx() {
+        assertThat(MainViewModel.isQmxRig(null)).isFalse();
+        assertThat(MainViewModel.isQmxRig(new HamlibRig(1036))).isFalse(); // FT-891
+        assertThat(MainViewModel.isQmxRig(
+                new HamlibRig(HamlibRig.QRPLABS_QMX_MODEL_ID))).isTrue();
     }
 }

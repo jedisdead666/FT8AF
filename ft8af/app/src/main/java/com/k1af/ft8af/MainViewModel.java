@@ -988,10 +988,14 @@ public class MainViewModel extends ViewModel {
                         baseRig != null && baseRig.supportWaveOverCAT());
             }
 
-            // Whether this over's beginKeying() actually paused RX capture, so
-            // endKeying() only resumes what it paused (see
-            // shouldPauseRxCaptureForTx's javadoc for why/when).
-            private boolean rxPausedForThisKeying = false;
+            // Whether the FT8 over's / the tune carrier's beginKeying() actually
+            // paused RX capture, so its endKeying() only resumes what it paused
+            // (see shouldPauseRxCaptureForTx's javadoc for why/when). One flag
+            // per keying source: arming TX only *requests* a tune stop, so the
+            // tune's endKeying() can run after the over's beginKeying(), and a
+            // single shared flag would let one consume the other's pause.
+            private volatile boolean rxPausedForOver = false;
+            private volatile boolean rxPausedForTune = false;
 
             /**
              * Assert PTT (+ pause SCO) through the configured control path. Shared
@@ -999,19 +1003,7 @@ public class MainViewModel extends ViewModel {
              * CAT/RTS/DTR branching lives in one place; with no control path
              * (VOX), this is a no-op and the audio itself keys the rig.
              */
-            private void beginKeying() {
-                rxPausedForThisKeying = hamRecorder != null && shouldPauseRxCaptureForTx(
-                        hamRecorder.isMicSource(),
-                        hamRecorder.getMicRecorder().isUsingUsbDirect(),
-                        GeneralVariables.audioOutputDeviceId == -1,
-                        GeneralVariables.usbAudioInputVendorId,
-                        GeneralVariables.usbAudioInputProductId,
-                        GeneralVariables.usbAudioOutputVendorId,
-                        GeneralVariables.usbAudioOutputProductId);
-                if (rxPausedForThisKeying) {
-                    hamRecorder.pauseForTx();
-                }
-
+            private void beginKeying(boolean tune) {
                 boolean keysViaControlPath = GeneralVariables.controlMode == ControlMode.CAT
                         || GeneralVariables.controlMode == ControlMode.RTS
                         || GeneralVariables.controlMode == ControlMode.DTR;
@@ -1043,10 +1035,31 @@ public class MainViewModel extends ViewModel {
                     pttSafetyLatch.onKeyed();
                     baseRig.setPTT(true);
                 }
+
+                // Last, so nothing above can throw between the pause and the
+                // caller's matching endKeying(): the TX audio itself only opens
+                // after the PTT settle delay, still well after this.
+                boolean pause = hamRecorder != null && shouldPauseRxCaptureForTx(
+                        isQmxRig(baseRig),
+                        hamRecorder.isMicSource(),
+                        hamRecorder.getMicRecorder().isUsingUsbDirect(),
+                        GeneralVariables.audioOutputDeviceId == -1,
+                        GeneralVariables.usbAudioInputVendorId,
+                        GeneralVariables.usbAudioInputProductId,
+                        GeneralVariables.usbAudioOutputVendorId,
+                        GeneralVariables.usbAudioOutputProductId);
+                if (pause) {
+                    hamRecorder.pauseForTx();
+                }
+                if (tune) {
+                    rxPausedForTune = pause;
+                } else {
+                    rxPausedForOver = pause;
+                }
             }
 
-            /** Release PTT (+ restore SCO); counterpart of {@link #beginKeying()}. */
-            private void endKeying() {
+            /** Release PTT (+ restore SCO); counterpart of {@link #beginKeying(boolean)}. */
+            private void endKeying(boolean tune) {
                 if (GeneralVariables.controlMode == ControlMode.CAT
                         || GeneralVariables.controlMode == ControlMode.RTS
                         || GeneralVariables.controlMode == ControlMode.DTR) {
@@ -1065,15 +1078,22 @@ public class MainViewModel extends ViewModel {
                 // fresh snapshot in beginKeying().
                 txScoLatch.keyUp();
 
-                if (rxPausedForThisKeying) {
-                    rxPausedForThisKeying = false;
+                boolean paused;
+                if (tune) {
+                    paused = rxPausedForTune;
+                    rxPausedForTune = false;
+                } else {
+                    paused = rxPausedForOver;
+                    rxPausedForOver = false;
+                }
+                if (paused) {
                     hamRecorder.resumeAfterTx();
                 }
             }
 
             @Override
             public void onBeforeTransmit(Ft8Message message, int functionOder) {
-                beginKeying();
+                beginKeying(false);
                 if (ft8TransmitSignal.isActivated()) {
                     GeneralVariables.transmitMessages.add(message);
                     //mutableTransmitMessages.postValue(GeneralVariables.transmitMessages);
@@ -1083,17 +1103,17 @@ public class MainViewModel extends ViewModel {
 
             @Override
             public void onAfterTransmit(Ft8Message message, int functionOder) {
-                endKeying();
+                endKeying(false);
             }
 
             @Override
             public void onTuneKeyDown() {
-                beginKeying();
+                beginKeying(true);
             }
 
             @Override
             public void onTuneKeyUp() {
-                endKeying();
+                endKeying(true);
             }
 
             @Override
@@ -2384,41 +2404,58 @@ public class MainViewModel extends ViewModel {
      * selection opens a genuine stereo track with the left channel at full
      * scale and the right silenced (see {@link AudioChannelSelect}) --
      * underdriven either way until the operator finds the manual Settings
-     * toggle. Defaults {@code txAudioChannel} to {@code LEFT} the first time
-     * the QMX connects, but only when the operator has never touched that
-     * setting at all (no "txAudioChannel" config row yet) -- an explicit
-     * choice, even {@code BOTH} itself, is never overridden.
+     * toggle. While a QMX is the connected rig, uses {@code LEFT} for TX, but
+     * only when the operator has never touched that setting at all (no
+     * "txAudioChannel" config row) -- an explicit choice, even {@code BOTH}
+     * itself, is never overridden. Applied in memory on every rig connect and
+     * never saved, so switching to another rig goes back to {@code BOTH}
+     * instead of leaving that rig on a left-only TX it never asked for.
      */
-    private void applyQmxTxChannelDefaultIfApplicable(int hamlibModelId) {
+    private void applyTxChannelDefaultForRig(boolean rigIsQmx) {
         if (databaseOpr == null) return;
-        if (!shouldDefaultQmxTxChannelToLeft(hamlibModelId,
-                databaseOpr.hasConfigKey(AudioChannelSelect.TX_CONFIG_KEY))) {
-            return;
+        boolean keyExists = databaseOpr.hasConfigKey(AudioChannelSelect.TX_CONFIG_KEY);
+        int channel = defaultTxChannelForRig(rigIsQmx, keyExists, GeneralVariables.txAudioChannel);
+        if (channel != GeneralVariables.txAudioChannel) {
+            GeneralVariables.txAudioChannel = channel;
+            GeneralVariables.fileLog("TX audio channel defaulted to "
+                    + (channel == AudioChannelSelect.LEFT ? "LEFT (QMX)" : "BOTH")
+                    + " (no saved user choice)");
         }
-        GeneralVariables.txAudioChannel = AudioChannelSelect.LEFT;
-        databaseOpr.writeConfig(AudioChannelSelect.TX_CONFIG_KEY,
-                String.valueOf(AudioChannelSelect.LEFT), null);
-        GeneralVariables.fileLog(
-                "QMX: defaulted TX audio channel to LEFT (first connect, no prior user choice)");
     }
 
     /**
-     * The decision behind {@link #applyQmxTxChannelDefaultIfApplicable}, pure
-     * and testable without a real {@code DatabaseOpr}/{@code Context}.
+     * The decision behind {@link #applyTxChannelDefaultForRig}, pure and
+     * testable without a real {@code DatabaseOpr}/{@code Context}: the TX
+     * channel to use for the rig being connected. A saved choice
+     * ({@code txChannelConfigKeyExists}) keeps {@code current}; otherwise the
+     * QMX gets {@code LEFT} and every other rig the {@code BOTH} default.
      */
-    static boolean shouldDefaultQmxTxChannelToLeft(int hamlibModelId, boolean txChannelConfigKeyExists) {
-        return hamlibModelId == HamlibRig.QRPLABS_QMX_MODEL_ID && !txChannelConfigKeyExists;
+    static int defaultTxChannelForRig(boolean rigIsQmx, boolean txChannelConfigKeyExists,
+                                      int current) {
+        if (txChannelConfigKeyExists) return current;
+        return rigIsQmx ? AudioChannelSelect.LEFT : AudioChannelSelect.BOTH;
+    }
+
+    /** Whether {@code rig} is a QRP Labs QMX driven through hamlib. */
+    static boolean isQmxRig(BaseRig rig) {
+        return rig instanceof HamlibRig && ((HamlibRig) rig).isQmx();
     }
 
     /**
      * Whether RX capture must be paused for the duration of this TX (see
      * {@link HamRecorder#pauseForTx()} for the real-hardware failure this
-     * works around). True only when RX is actually holding an Android
-     * capture session on the exact same USB device TX is about to play on --
-     * deliberately narrow, since the conflict was only confirmed for that
-     * exact combination:
+     * works around). True only for the QRP Labs QMX, and only when RX is
+     * actually holding an Android capture session on the exact same USB
+     * device TX is about to play on. The QMX gate matters: matching VID:PID
+     * alone is true for every single-cable USB rig (IC-7300, IC-705,
+     * IC-9700, FT-991A, Digirig, SignaLink...) whose operator picked the
+     * rig's codec for both directions, and pausing those would blank the
+     * waterfall during TX, break full-duplex satellite monitoring, and risk
+     * delaying the last RX slot's decode -- for a HAL conflict only ever
+     * confirmed with a QMX:
      *
      * <ul>
+     *   <li>the rig must be a QMX ({@link #isQmxRig});
      *   <li>RX must be the phone-audio path ({@code HamRecorder.isMicSource()}),
      *       not a LAN-connected rig -- those never touch this HAL at all, and
      *       toggling capture off would spuriously gate their audio too (see
@@ -2433,10 +2470,11 @@ public class MainViewModel extends ViewModel {
      *       reason to share this HAL's single ALSA card.
      * </ul>
      */
-    static boolean shouldPauseRxCaptureForTx(boolean rxIsMicSource, boolean rxIsUsbDirect,
-            boolean txIsUsbDirectOutput, int usbInputVendorId, int usbInputProductId,
+    static boolean shouldPauseRxCaptureForTx(boolean rigIsQmx, boolean rxIsMicSource,
+            boolean rxIsUsbDirect, boolean txIsUsbDirectOutput,
+            int usbInputVendorId, int usbInputProductId,
             int usbOutputVendorId, int usbOutputProductId) {
-        if (!rxIsMicSource || rxIsUsbDirect || txIsUsbDirectOutput) {
+        if (!rigIsQmx || !rxIsMicSource || rxIsUsbDirect || txIsUsbDirectOutput) {
             return false;
         }
         return usbInputVendorId != 0
@@ -2550,11 +2588,11 @@ public class MainViewModel extends ViewModel {
                 RigNameList.RigName selected = ctx == null ? null
                         : RigNameList.getInstance(ctx).getRigNameByIndex(GeneralVariables.modelNo);
                 int hamlibModelId = HamlibRig.modelIdFor(selected);
-                applyQmxTxChannelDefaultIfApplicable(hamlibModelId);
                 baseRig = new HamlibRig(hamlibModelId);
                 break;
             }
         }
+        applyTxChannelDefaultForRig(isQmxRig(baseRig));
 
         // Store the rig name for PSKReporter software string.
         // Use the user-selected model name from RigNameList (same source as the
