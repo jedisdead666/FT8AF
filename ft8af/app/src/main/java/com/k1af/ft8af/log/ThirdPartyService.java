@@ -4,6 +4,8 @@ import android.database.sqlite.SQLiteDatabase;
 import android.util.Log;
 
 import com.k1af.ft8af.GeneralVariables;
+import com.k1af.ft8af.database.AfterInsertQSLData;
+import com.k1af.ft8af.database.DatabaseOpr;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -28,6 +30,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 enum ServiceType{
@@ -603,6 +606,11 @@ public class ThirdPartyService {
          * duplicate. They are marked synced, like an accepted upload.
          */
         public final int cloudlogAlreadyPresent;
+        /**
+         * QSOs the Wavelog logbook had and the local log didn't, inserted locally during this
+         * sync (issue #965). 0 unless "Download QSOs from Wavelog when syncing" is on.
+         */
+        public final int cloudlogDownloaded;
 
         public SyncResult(int total, int cloudlogOk, int qrzOk,
                           boolean cloudlogAttempted, boolean qrzAttempted) {
@@ -627,6 +635,14 @@ public class ThirdPartyService {
                           boolean cloudlogAttempted, boolean qrzAttempted, boolean wrlAttempted,
                           String cloudlogError, String qrzError, String wrlError,
                           int cloudlogAlreadyPresent) {
+            this(total, cloudlogOk, qrzOk, wrlOk, cloudlogAttempted, qrzAttempted, wrlAttempted,
+                    cloudlogError, qrzError, wrlError, cloudlogAlreadyPresent, 0);
+        }
+
+        public SyncResult(int total, int cloudlogOk, int qrzOk, int wrlOk,
+                          boolean cloudlogAttempted, boolean qrzAttempted, boolean wrlAttempted,
+                          String cloudlogError, String qrzError, String wrlError,
+                          int cloudlogAlreadyPresent, int cloudlogDownloaded) {
             this.total = total;
             this.cloudlogOk = cloudlogOk;
             this.qrzOk = qrzOk;
@@ -638,6 +654,7 @@ public class ThirdPartyService {
             this.qrzError = qrzError;
             this.wrlError = wrlError;
             this.cloudlogAlreadyPresent = cloudlogAlreadyPresent;
+            this.cloudlogDownloaded = cloudlogDownloaded;
         }
     }
 
@@ -699,9 +716,46 @@ public class ThirdPartyService {
      * (issue #936). A row the server rejects as a duplicate is marked synced too, so it is
      * not retried on every sync.
      *
+     * <p>Never imports QSOs from Wavelog; use {@link #syncAllQSOs(DatabaseOpr, SyncProgress)}
+     * for that.
+     *
      * Blocks the calling thread — invoke from a background thread/coroutine.
      */
     public static SyncResult syncAllQSOs(SQLiteDatabase db, SyncProgress progress) {
+        return syncAllQSOs(db, progress, null);
+    }
+
+    /**
+     * As {@link #syncAllQSOs(SQLiteDatabase, SyncProgress)}, and when "Download QSOs from
+     * Wavelog when syncing" is on ({@link GeneralVariables#cloudlogDownloadQsos}) the QSOs the
+     * Wavelog logbook has and this log doesn't are inserted first (issue #965), through the
+     * same {@link DatabaseOpr#doInsertQSLData} call the ADIF import uses.
+     */
+    public static SyncResult syncAllQSOs(DatabaseOpr opr, SyncProgress progress) {
+        if (opr == null) return syncAllQSOs((SQLiteDatabase) null, progress);
+        SyncResult result = syncAllQSOs(opr.getDb(), progress,
+                (record, after) -> opr.doInsertQSLData(record, after, false));
+        // New rows change who counts as worked before; reload the cache the decode list's
+        // worked/needed highlighting reads, as a fresh app start would.
+        if (result.cloudlogDownloaded > 0) opr.getAllQSLCallsigns();
+        return result;
+    }
+
+    /**
+     * Inserts one QSO into the local log. {@link DatabaseOpr#doInsertQSLData} in the app; a
+     * seam so the two-way sync can be tested without the whole database helper.
+     */
+    interface QsoInserter {
+        void insert(QSLRecord record, AfterInsertQSLData afterInsert);
+    }
+
+    /**
+     * The sync itself. With an {@code inserter} and the download setting on, the Wavelog
+     * logbook is read once and used for both directions, in this order: download, insert
+     * the remote QSOs no local row accounts for, then upload the local rows the remote log
+     * doesn't have.
+     */
+    static SyncResult syncAllQSOs(SQLiteDatabase db, SyncProgress progress, QsoInserter inserter) {
         boolean cl = GeneralVariables.enableCloudlog;
         boolean qrz = GeneralVariables.enableQRZ;
         boolean wrl = GeneralVariables.enableWRL;
@@ -710,11 +764,19 @@ public class ThirdPartyService {
         int qrzOk = 0;
         int wrlOk = 0;
         int cloudlogAlreadyPresent = 0;
+        int cloudlogDownloaded = 0;
         String cloudlogError = null;
         String qrzError = null;
         String wrlError = null;
         if (db == null || (!cl && !qrz && !wrl)) {
             return new SyncResult(0, 0, 0, 0, cl, qrz, wrl, null, null, null);
+        }
+        // Ids of the pending rows the Wavelog logbook already has, when the two-way sync
+        // downloaded it; null when it didn't, and the upload pass checks on its own (#936).
+        Set<Long> cloudlogPresentIds = null;
+        if (cl && inserter != null && GeneralVariables.cloudlogDownloadQsos) {
+            cloudlogPresentIds = new HashSet<>();
+            cloudlogDownloaded = downloadMissingFromCloudlog(db, inserter, cloudlogPresentIds);
         }
         Cursor cursor = null;
         try {
@@ -736,9 +798,9 @@ public class ThirdPartyService {
             // Same for Cloudlog: a wrong Station ID or API key refuses every row identically.
             boolean clLive = cl;
             // Cursor positions of the rows the Cloudlog/Wavelog logbook already has (#936).
-            Set<Integer> cloudlogPresent = cl
-                    ? findRowsAlreadyInCloudlog(cursor, syncedClCol)
-                    : Collections.<Integer>emptySet();
+            Set<Integer> cloudlogPresent = !cl ? Collections.<Integer>emptySet()
+                    : cloudlogPresentIds != null ? positionsOfIds(cursor, idCol, cloudlogPresentIds)
+                    : findRowsAlreadyInCloudlog(cursor, syncedClCol);
             int done = 0;
             while (cursor.moveToNext()) {
                 long rowId = idCol >= 0 ? cursor.getLong(idCol) : -1;
@@ -798,7 +860,115 @@ public class ThirdPartyService {
             if (cursor != null) cursor.close();
         }
         return new SyncResult(total, cloudlogOk, qrzOk, wrlOk, cl, qrz, wrl,
-                cloudlogError, qrzError, wrlError, cloudlogAlreadyPresent);
+                cloudlogError, qrzError, wrlError, cloudlogAlreadyPresent, cloudlogDownloaded);
+    }
+
+    /** Remote QSOs inserted per transaction, so a big first download isn't one fsync per row. */
+    private static final int IMPORT_BATCH_SIZE = 200;
+
+    /**
+     * The download half of the two-way sync (issue #965). Reads the Wavelog logbook once,
+     * pairs it with every local row (synced or not) using #936's one-to-one matcher, inserts
+     * each remote QSO no local row accounts for, and adds to {@code presentIdsOut} the ids of
+     * the not-yet-uploaded rows the logbook already has, for the upload pass that follows.
+     *
+     * <p>Inserted rows are marked synced to Cloudlog, QRZ and World Radio League. They came
+     * from another logger by way of Wavelog, so they are already in Wavelog, and a download
+     * from Wavelog shouldn't, on its own, push another logger's QSOs to QRZ or WRL.
+     *
+     * <p>Does nothing when the server can't list its QSOs (plain Cloudlog); the upload pass
+     * then sends every pending row, as it does when the remote log can't be read in #936.
+     *
+     * @return the number of QSOs inserted
+     */
+    static int downloadMissingFromCloudlog(SQLiteDatabase db, QsoInserter inserter,
+                                           Set<Long> presentIdsOut) {
+        CloudlogRemoteLog remote = fetchCloudlogRemoteLog(true);
+        if (remote == null) return 0;
+
+        List<CloudlogRemoteLog.Local> locals = new ArrayList<>();
+        List<Long> ids = new ArrayList<>();
+        List<Boolean> pending = new ArrayList<>();
+        Cursor c = null;
+        try {
+            c = db.rawQuery("select id, call, qso_date, time_on, band, mode, station_callsign,"
+                    + " synced_cloudlog from QSLTable order by id asc", null);
+            while (c.moveToNext()) {
+                ids.add(c.getLong(0));
+                locals.add(new CloudlogRemoteLog.Local(c.getString(1), c.getString(2),
+                        c.getString(3), c.getString(4), c.getString(5), c.getString(6)));
+                pending.add(c.isNull(7) || c.getInt(7) == 0);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "two-way sync: local log read failed: " + e.getClass().getSimpleName());
+            return 0;
+        } finally {
+            if (c != null) c.close();
+        }
+
+        CloudlogRemoteLog.Pairing pairing = remote.pair(locals);
+        for (int i : pairing.presentLocals) {
+            if (pending.get(i)) presentIdsOut.add(ids.get(i));
+        }
+        int inserted = insertRemoteQsos(db, inserter, pairing.unmatchedRemote);
+        GeneralVariables.fileLog("Cloudlog: downloaded " + inserted + " of "
+                + pairing.unmatchedRemote.size() + " QSOs missing from the local log");
+        return inserted;
+    }
+
+    /**
+     * Inserts remote QSOs (ADIF field maps) the way the ADIF import does, and marks each new
+     * row synced everywhere ({@link #downloadMissingFromCloudlog} says why). A record the
+     * insert treats as one the log already has (same call, date, time_on and mode) only
+     * updates that row and is neither counted nor marked, so a local row still waiting to be
+     * uploaded stays pending.
+     *
+     * @return the number of rows inserted
+     */
+    static int insertRemoteQsos(SQLiteDatabase db, QsoInserter inserter,
+                                List<Map<String, String>> records) {
+        int inserted = 0;
+        for (int start = 0; start < records.size(); start += IMPORT_BATCH_SIZE) {
+            int end = Math.min(records.size(), start + IMPORT_BATCH_SIZE);
+            int batch = 0;
+            db.beginTransaction();
+            try {
+                for (int i = start; i < end; i++) {
+                    QSLRecord record = new QSLRecord(new HashMap<>(records.get(i)));
+                    boolean[] isNew = {false};
+                    inserter.insert(record, (invalid, newQsl, hasWarning) -> isNew[0] = newQsl && !invalid);
+                    if (isNew[0]) {
+                        markQsoSynced(db, record, true, true, true);
+                        batch++;
+                    }
+                }
+                db.setTransactionSuccessful();
+            } catch (Exception e) {
+                // The batch is rolled back. Leave it and the rest for the next sync rather
+                // than skip the uploads that follow.
+                Log.e(TAG, "two-way sync: insert failed: " + e.getClass().getSimpleName()
+                        + " " + e.getMessage());
+                GeneralVariables.fileLog("Cloudlog: download insert failed: "
+                        + e.getClass().getSimpleName());
+                return inserted;
+            } finally {
+                db.endTransaction();
+            }
+            inserted += batch;
+        }
+        return inserted;
+    }
+
+    /** Cursor positions of the rows whose id is in {@code ids}. Leaves the cursor before the first row. */
+    private static Set<Integer> positionsOfIds(Cursor cursor, int idCol, Set<Long> ids) {
+        Set<Integer> positions = new HashSet<>();
+        if (idCol < 0 || ids.isEmpty()) return positions;
+        cursor.moveToPosition(-1);
+        while (cursor.moveToNext()) {
+            if (ids.contains(cursor.getLong(idCol))) positions.add(cursor.getPosition());
+        }
+        cursor.moveToPosition(-1);
+        return positions;
     }
 
     /**
@@ -824,7 +994,7 @@ public class ThirdPartyService {
         cursor.moveToPosition(-1);
         Set<Integer> present = new HashSet<>();
         if (pending.isEmpty()) return present;
-        CloudlogRemoteLog remote = fetchCloudlogRemoteLog();
+        CloudlogRemoteLog remote = fetchCloudlogRemoteLog(false);
         if (remote == null) return present;
         for (int i : remote.matchPresent(pending)) present.add(positions.get(i));
         return present;
@@ -841,8 +1011,12 @@ public class ThirdPartyService {
      * Returns null when nothing could be read: no API key, or a server without
      * {@code api/get_contacts_adif} (plain Cloudlog). A partial download is still returned,
      * since every QSO in it really is on the server. Blocks; call from a background thread.
+     *
+     * @param forImport ask for {@link CloudlogRemoteLog#IMPORT_FIELDS} and keep every QSO's
+     *                  fields, so the ones missing locally can be inserted (issue #965);
+     *                  otherwise only the fields the duplicate check needs
      */
-    static CloudlogRemoteLog fetchCloudlogRemoteLog() {
+    static CloudlogRemoteLog fetchCloudlogRemoteLog(boolean forImport) {
         String base = CloudlogEndpoint.normalizeBase(GeneralVariables.getCloudlogServerAddress());
         String key = GeneralVariables.getCloudlogServerApiKey();
         if (base == null || key == null || key.trim().isEmpty()) return null;
@@ -856,7 +1030,8 @@ public class ThirdPartyService {
             stationIds.add(configured.trim());
         }
 
-        CloudlogRemoteLog remote = new CloudlogRemoteLog();
+        CloudlogRemoteLog remote = new CloudlogRemoteLog(forImport);
+        String[] fields = forImport ? CloudlogRemoteLog.IMPORT_FIELDS : CloudlogRemoteLog.FIELDS;
         // A row without a station callsign is uploaded to the configured location, so it
         // is only "already there" if that location's callsign logged it.
         remote.setDefaultStationCallsign(stationCallsignOf(profiles, configured));
@@ -866,7 +1041,8 @@ public class ThirdPartyService {
             for (int page = 0; page < REMOTE_MAX_PAGES; page++) {
                 StringBuilder why = new StringBuilder();
                 String body = cloudlogApi.post(base, "api/get_contacts_adif",
-                        CloudlogRemoteLog.pageRequestJson(key, stationId, cursor, REMOTE_PAGE_SIZE),
+                        CloudlogRemoteLog.pageRequestJson(key, stationId, cursor, REMOTE_PAGE_SIZE,
+                                fields),
                         why);
                 if (body == null) {
                     GeneralVariables.fileLog("Cloudlog: can't list QSOs for station "
@@ -921,6 +1097,51 @@ public class ThirdPartyService {
     static boolean isDuplicateRejection(String failure) {
         return failure != null && failure.startsWith("HTTP 400")
                 && failure.toLowerCase(Locale.US).contains("duplicate for");
+    }
+
+    /**
+     * Whether the configured server can list its QSOs ({@code api/get_contacts_adif}), which
+     * "Download QSOs from Wavelog when syncing" needs (issue #965). Asks for the page after
+     * a cursor no logbook reaches, so nothing is downloaded. TRUE on Wavelog; FALSE when the
+     * server has no such endpoint (plain Cloudlog); null when it couldn't be told (not
+     * configured, offline, wrong key). Blocks; call from a background thread.
+     */
+    public static Boolean cloudlogCanListQsos() {
+        String base = CloudlogEndpoint.normalizeBase(GeneralVariables.getCloudlogServerAddress());
+        String key = GeneralVariables.getCloudlogServerApiKey();
+        if (base == null || key == null || key.trim().isEmpty()) return null;
+        key = key.trim();
+        String stationId = GeneralVariables.getCloudlogStationID();
+        if (stationId == null || stationId.trim().isEmpty()) {
+            List<String> ids = parseStationIds(cloudlogApi.get(base, "api/station_info/" + key));
+            if (ids.isEmpty()) return null;
+            stationId = ids.get(0);
+        }
+        StringBuilder why = new StringBuilder();
+        String body = cloudlogApi.post(base, "api/get_contacts_adif",
+                CloudlogRemoteLog.pageRequestJson(key, stationId.trim(), Integer.MAX_VALUE, 1),
+                why);
+        return contactsListingSupport(body, why.toString());
+    }
+
+    /**
+     * Reads a {@code get_contacts_adif} probe reply for {@link #cloudlogCanListQsos}: a
+     * "successful" JSON reply means the server lists QSOs; a 404, or a 2xx body that isn't
+     * JSON (an HTML error page), means it doesn't. Anything else (a JSON refusal such as a
+     * station id the key doesn't own, a 401, a timeout) leaves it unknown.
+     */
+    static Boolean contactsListingSupport(String body, String failure) {
+        if (body != null) {
+            JSONObject obj;
+            try {
+                obj = new JSONObject(body);
+            } catch (Exception e) {
+                return Boolean.FALSE;
+            }
+            return "successful".equalsIgnoreCase(obj.optString("status")) ? Boolean.TRUE : null;
+        }
+        if (failure != null && failure.startsWith("HTTP 404")) return Boolean.FALSE;
+        return null;
     }
 
     /**

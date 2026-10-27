@@ -3191,6 +3191,9 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                 if (name.equalsIgnoreCase("enableCloudlog")) {
                     GeneralVariables.enableCloudlog = result.equals("1");
                 }
+                if (name.equalsIgnoreCase("cloudlogDownloadQsos")) {
+                    GeneralVariables.cloudlogDownloadQsos = result.equals("1");
+                }
                 if (name.equalsIgnoreCase("cloudlogServerAddress")) {
                     GeneralVariables.cloudlogServerAddress = result;
                 }

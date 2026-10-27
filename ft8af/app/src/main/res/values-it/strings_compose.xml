@@ -231,6 +231,7 @@
     <string name="log_sync_progress_count">%1$d di %2$d QSO</string>
     <string name="log_sync_cloudlog_accepted">Cloudlog / Wavelog / Nextlog: %1$d accettati</string>
     <string name="log_sync_cloudlog_already_present">Cloudlog / Wavelog / Nextlog: %1$d già nel registro</string>
+    <string name="log_sync_cloudlog_downloaded">Cloudlog / Wavelog / Nextlog: %1$d scaricati</string>
     <string name="log_sync_qrz_accepted">QRZ: %1$d accettati</string>
     <string name="log_sync_nothing_to_upload">Nessun QSO nel log da caricare al momento.</string>
     <string name="log_sync_working">Elaborazione…</string>
@@ -491,6 +492,9 @@
     <string name="settings_qrz_profile_lookup_desc">Username + password per QRZ XML API (avatar)</string>
     <string name="settings_cloudlog">Cloudlog / Wavelog / Nextlog</string>
     <string name="settings_cloudlog_desc">Carica automaticamente i QSO su un\'istanza Cloudlog, Wavelog o Nextlog</string>
+    <string name="settings_cloudlog_download">Scarica i QSO da Wavelog durante la sincronizzazione</string>
+    <string name="settings_cloudlog_download_desc">La sincronizzazione aggiunge anche i QSO presenti nel tuo registro Wavelog ma non in questo. Non vengono inviati a QRZ né a World Radio League.</string>
+    <string name="settings_cloudlog_download_unsupported">Richiede Wavelog: questo server non può elencare i suoi QSO.</string>
 
     <!-- ===== Settings: advanced ===== -->
     <string name="settings_ptt_delay">Ritardo PTT</string>

@@ -72,6 +72,23 @@ fun LoggingSettings(
     var qrzXmlPass by remember { mutableStateOf(GeneralVariables.qrzXmlPassword.orEmpty()) }
     var qrzApiKey by remember { mutableStateOf(GeneralVariables.qrzApiKey.orEmpty()) }
     var cloudlogAddress by remember { mutableStateOf(GeneralVariables.cloudlogServerAddress.orEmpty()) }
+    var cloudlogDownloadQsos by remember { mutableStateOf(GeneralVariables.cloudlogDownloadQsos) }
+    // Whether the server can list its QSOs, which the download needs (issue #965): null
+    // until known. Re-checked when Cloudlog is switched on or its settings are saved.
+    var cloudlogCanList by remember { mutableStateOf<Boolean?>(null) }
+    var cloudlogSettingsVersion by remember { mutableStateOf(0) }
+    LaunchedEffect(enableCloudlog, cloudlogSettingsVersion) {
+        cloudlogCanList = null
+        if (enableCloudlog) {
+            cloudlogCanList = withContext(Dispatchers.IO) {
+                try {
+                    ThirdPartyService.cloudlogCanListQsos()
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
     // WSJT-X UDP interface (GridTracker / JTAlert / N1MM / Log4OM interop).
     var udpEnabled by remember { mutableStateOf(GeneralVariables.udpEnabled) }
     var udpAccept by remember { mutableStateOf(GeneralVariables.udpAcceptRequests) }
@@ -151,6 +168,7 @@ fun LoggingSettings(
                 GeneralVariables.cloudlogApiKey = apiKey
                 GeneralVariables.cloudlogStationID = stationId
                 cloudlogAddress = address
+                cloudlogSettingsVersion++
                 mainViewModel.databaseOpr.writeConfig("cloudlogServerAddress", address, null)
                 mainViewModel.databaseOpr.writeConfig("cloudlogApiKey", apiKey, null)
                 mainViewModel.databaseOpr.writeConfig("cloudlogStationID", stationId, null)
@@ -282,6 +300,26 @@ fun LoggingSettings(
                         showChevron = true,
                         onClick = { showCloudlog = true },
                     )
+                    if (enableCloudlog) {
+                        SectionDivider()
+                        SettingsRow(
+                            label = stringResource(R.string.settings_cloudlog_download),
+                            description = if (cloudlogDownloadUnsupported(cloudlogCanList)) {
+                                stringResource(R.string.settings_cloudlog_download_unsupported)
+                            } else {
+                                stringResource(R.string.settings_cloudlog_download_desc)
+                            },
+                            toggle = cloudlogDownloadQsos,
+                            onToggleChange = { checked ->
+                                cloudlogDownloadQsos = checked
+                                GeneralVariables.cloudlogDownloadQsos = checked
+                                mainViewModel.databaseOpr.writeConfig(
+                                    "cloudlogDownloadQsos", if (checked) "1" else "0", null,
+                                )
+                            },
+                            enabled = !cloudlogDownloadUnsupported(cloudlogCanList),
+                        )
+                    }
                     SectionDivider()
                     SettingsRow(
                         label = stringResource(R.string.settings_wrl),
@@ -802,6 +840,13 @@ internal fun filterStationLocationIdInput(previous: TextFieldValue, value: TextF
     }
     return TextFieldValue(cleaned, TextRange(cursor))
 }
+
+/**
+ * Whether to grey out "Download QSOs from Wavelog when syncing": only once the server is known
+ * to have no QSO listing (plain Cloudlog). While unknown (offline, still checking) it stays
+ * usable, since a sync against such a server just skips the download.
+ */
+internal fun cloudlogDownloadUnsupported(canList: Boolean?): Boolean = canList == false
 
 /** Label for the chosen WRL logbook. A blank id is the account default; an id no longer listed shows raw. */
 internal fun wrlLogbookSelectionLabel(

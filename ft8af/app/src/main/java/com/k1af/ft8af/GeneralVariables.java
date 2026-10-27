@@ -43,6 +43,9 @@ public class GeneralVariables {
     public static boolean saveSWLMessage = false;//Save decoded messages switch
     public static boolean saveSWL_QSO = false;//Save QSOs from decoded messages switch
     public static boolean enableCloudlog = false;//Whether Cloudlog auto-sync is enabled
+    // Whether Sync also imports the QSOs the Wavelog logbook has and this log doesn't (issue #965).
+    // Off by default so an existing user's sync doesn't suddenly pull in thousands of other-mode QSOs.
+    public static boolean cloudlogDownloadQsos = false;
     public static boolean enableQRZ = false;//Whether QRZ auto-sync is enabled
     public static boolean enableWRL = false;//Whether World Radio League auto-sync is enabled (issue #800)
     public static boolean enablePskReporter = true;//Whether PSKReporter spot upload is enabled

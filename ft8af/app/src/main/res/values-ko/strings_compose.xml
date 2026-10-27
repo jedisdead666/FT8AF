@@ -242,6 +242,7 @@
     <string name="log_sync_progress_count">%2$d개 중 %1$d개 QSO</string>
     <string name="log_sync_cloudlog_accepted">Cloudlog / Wavelog / Nextlog: %1$d개 수락됨</string>
     <string name="log_sync_cloudlog_already_present">Cloudlog / Wavelog / Nextlog: %1$d개 이미 로그북에 있음</string>
+    <string name="log_sync_cloudlog_downloaded">Cloudlog / Wavelog / Nextlog: %1$d개 다운로드됨</string>
     <string name="log_sync_qrz_accepted">QRZ: %1$d개 수락됨</string>
     <string name="log_sync_nothing_to_upload">아직 업로드할 QSO가 로그북에 없습니다.</string>
     <string name="log_sync_working">처리 중…</string>
@@ -494,6 +495,9 @@
     <string name="settings_qrz_profile_lookup_desc">QRZ XML API용 사용자 이름 + 비밀번호 (아바타)</string>
     <string name="settings_cloudlog">Cloudlog / Wavelog / Nextlog</string>
     <string name="settings_cloudlog_desc">QSO를 Cloudlog, Wavelog 또는 Nextlog 인스턴스에 자동 업로드</string>
+    <string name="settings_cloudlog_download">동기화 시 Wavelog에서 QSO 다운로드</string>
+    <string name="settings_cloudlog_download_desc">동기화할 때 Wavelog 로그북에는 있지만 이 로그에는 없는 QSO도 추가합니다. 추가된 QSO는 QRZ나 World Radio League로 전송되지 않습니다.</string>
+    <string name="settings_cloudlog_download_unsupported">Wavelog 필요: 이 서버는 QSO 목록을 제공하지 않습니다.</string>
 
     <!-- ===== Settings: advanced ===== -->
     <string name="settings_ptt_delay">PTT 지연</string>
