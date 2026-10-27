@@ -43,6 +43,9 @@ public class GeneralVariables {
     public static boolean saveSWLMessage = false;//Save decoded messages switch
     public static boolean saveSWL_QSO = false;//Save QSOs from decoded messages switch
     public static boolean enableCloudlog = false;//Whether Cloudlog auto-sync is enabled
+    // Whether Sync also imports the QSOs the Wavelog logbook has and this log doesn't (issue #965).
+    // Off by default so an existing user's sync doesn't suddenly pull in thousands of other-mode QSOs.
+    public static boolean cloudlogDownloadQsos = false;
     public static boolean enableQRZ = false;//Whether QRZ auto-sync is enabled
     public static boolean enableWRL = false;//Whether World Radio League auto-sync is enabled (issue #800)
     public static boolean enablePskReporter = true;//Whether PSKReporter spot upload is enabled
@@ -142,6 +145,10 @@ public class GeneralVariables {
     // splitter cable drives only the intended rig. Persisted under
     // AudioChannelSelect.TX_CONFIG_KEY; read on the TX path, hence volatile.
     public static volatile int txAudioChannel = com.k1af.ft8af.wave.AudioChannelSelect.BOTH;
+
+    // QMX only: send each TX tone as a CAT TA command instead of audio — see
+    // QmxCatTones. Off by default. Persisted under QmxCatTones.CONFIG_KEY.
+    public static volatile boolean qmxCatTones = false;
 
     // Full duplex (satellite operating): show decodes of our OWN transmission
     // instead of discarding them as loopback echoes. On a linear-transponder

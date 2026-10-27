@@ -712,12 +712,30 @@ public class MicRecorder {
      * restart capture the operator explicitly stopped. {@link #reinitialize()}
      * itself does the equivalent teardown inline rather than calling this, so
      * its own internal stop/rebuild cycle never clears that intent flag.
+     *
+     * <p>Retires the AudioRecord reader thread before returning (new
+     * generation, stop the recording to unblock its read(), bounded join),
+     * so a {@link #start()} right after -- e.g. RX resuming after a short TX
+     * pause -- can't leave the old reader running alongside the new one on
+     * the same AudioRecord (a fatal native abort), or let the old reader's
+     * exit stop the new recording.
      */
     public synchronized void stopRecord() {
+        captureGeneration++;
         isRunning = false;
         shouldBeRunning = false;
         if (useUsbAudio && usbAudioDevice != null) {
             usbAudioDevice.stopCapture();
+        }
+        if (audioRecord != null) {
+            try {
+                if (audioRecord.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+                    audioRecord.stop();
+                }
+            } catch (Exception e) {
+                Log.d(TAG, "stopRecord: error stopping AudioRecord: " + e.getMessage());
+            }
+            joinCaptureThread();
         }
     }
 
@@ -817,7 +835,17 @@ public class MicRecorder {
             if (audioRecord != null && GeneralVariables.audioInputDeviceId > 0) {
                 AudioDeviceInfo deviceInfo = findAudioDeviceById(
                         GeneralVariables.audioInputDeviceId, AudioManager.GET_DEVICES_INPUTS);
-                audioRecord.setPreferredDevice(deviceInfo);
+                boolean ok = audioRecord.setPreferredDevice(deviceInfo);
+                // Logs the REQUESTED id (what was persisted) and the RESOLVED one
+                // separately: findAudioDeviceById() can fall back to a different,
+                // currently-live id via UsbAudioDevice.resolveDeviceIndex's product-name
+                // match when the requested one went stale across a USB re-enumeration --
+                // confirmed on real hardware (a QMX power-cycle), where logging only the
+                // requested id made a successful fallback look identical to an exact hit.
+                GeneralVariables.fileLog(String.format(
+                        "MicRecorder: reinit preferredDevice requestedId=%d resolvedId=%d ok=%b deviceFound=%b",
+                        GeneralVariables.audioInputDeviceId,
+                        deviceInfo == null ? -1 : deviceInfo.getId(), ok, deviceInfo != null));
             }
         }
 
@@ -839,6 +867,16 @@ public class MicRecorder {
      */
     static boolean shouldRestartAfterReinitialize(boolean shouldBeRunning) {
         return shouldBeRunning;
+    }
+
+    /** Current reader-thread generation. Package-visible for testing. */
+    int captureGenerationForTest() {
+        return captureGeneration;
+    }
+
+    /** The most recent AudioRecord reader thread. Package-visible for testing. */
+    Thread captureThreadForTest() {
+        return captureThread;
     }
 
     /**

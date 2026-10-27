@@ -801,6 +801,23 @@ public class DatabaseOpr extends SQLiteOpenHelper {
     }
 
     /**
+     * Whether a config row exists for {@code keyName} at all -- synchronous
+     * (unlike every other config accessor here), for callers on a background
+     * thread that need an answer before deciding what to do next (e.g.
+     * whether the operator has ever touched a given setting themselves,
+     * distinct from it merely holding its hardcoded default).
+     */
+    public boolean hasConfigKey(String keyName) {
+        Cursor cursor = db.rawQuery("select 1 from config where KeyName = ? limit 1",
+                new String[]{keyName});
+        try {
+            return cursor.moveToFirst();
+        } finally {
+            cursor.close();
+        }
+    }
+
+    /**
      * The config value as it may appear in logcat. Keys that hold credentials
      * ({@link SettingsBackup#getSENSITIVE_KEYS()} -- the API keys and passwords a
      * settings export also withholds) are masked, so saving e.g. a World Radio
@@ -1504,6 +1521,16 @@ public class DatabaseOpr extends SQLiteOpenHelper {
 
     public boolean doInsertQSLData(QSLRecord record, AfterInsertQSLData afterInsertQSLData,
                                    boolean appendToAdifFile) {
+        return doInsertQSLData(record, afterInsertQSLData, appendToAdifFile, true);
+    }
+
+    /**
+     * As {@link #doInsertQSLData(QSLRecord, AfterInsertQSLData, boolean)}; {@code stampPota}
+     * false skips the POTA stamping, for QSOs downloaded from another log (issue #965), which
+     * were made before the activation now running.
+     */
+    public boolean doInsertQSLData(QSLRecord record, AfterInsertQSLData afterInsertQSLData,
+                                   boolean appendToAdifFile, boolean stampPota) {
         if (record.getToCallsign() == null) {
             if (afterInsertQSLData!=null){
                 afterInsertQSLData.doAfterInsert(true,true,false);//Invalid QSL: not written at all
@@ -1513,9 +1540,11 @@ public class DatabaseOpr extends SQLiteOpenHelper {
         // POTA: if an activation is running, stamp MY_SIG/MY_SIG_INFO; if the worked
         // station is currently spotted on pota.app, stamp SIG/SIG_INFO too (P2P case).
         // No-op when no activation/spot, so non-POTA contacts are unaffected.
-        radio.ks3ckc.ft8af.pota.PotaSessionManager.stampQso(
-                record,
-                radio.ks3ckc.ft8af.pota.PotaSpotsRepository.parkRefFor(record.getToCallsign()));
+        if (stampPota) {
+            radio.ks3ckc.ft8af.pota.PotaSessionManager.stampQso(
+                    record,
+                    radio.ks3ckc.ft8af.pota.PotaSpotsRepository.parkRefFor(record.getToCallsign()));
+        }
 
         String querySQL;
         if (!checkQSLCallsign(record)) {//If record doesn't exist, add it
@@ -2968,6 +2997,9 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                     //defensive parse as the RX key; anything else falls back to both.
                     GeneralVariables.txAudioChannel = AudioChannelSelect.parse(result);
                 }
+                if (name.equalsIgnoreCase(com.k1af.ft8af.ft8transmit.QmxCatTones.CONFIG_KEY)) {//QMX CAT tones
+                    GeneralVariables.qmxCatTones = result.equals("1");
+                }
                 if (name.equalsIgnoreCase(FullDuplexMonitor.CONFIG_KEY)) {//Full duplex (satellite) monitoring
                     //Off unless explicitly "1": show our own transmission's decodes
                     //rather than filtering them out as loopback echoes.
@@ -3190,6 +3222,9 @@ public class DatabaseOpr extends SQLiteOpenHelper {
                 // cloudlogs
                 if (name.equalsIgnoreCase("enableCloudlog")) {
                     GeneralVariables.enableCloudlog = result.equals("1");
+                }
+                if (name.equalsIgnoreCase("cloudlogDownloadQsos")) {
+                    GeneralVariables.cloudlogDownloadQsos = result.equals("1");
                 }
                 if (name.equalsIgnoreCase("cloudlogServerAddress")) {
                     GeneralVariables.cloudlogServerAddress = result;
