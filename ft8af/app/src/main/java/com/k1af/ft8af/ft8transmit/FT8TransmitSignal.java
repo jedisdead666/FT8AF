@@ -1112,7 +1112,14 @@ public class FT8TransmitSignal {
 
         // set preferred output device
         if (GeneralVariables.audioOutputDeviceId > 0) {
-            audioTrack.setPreferredDevice(preferredOutputDevice); // null resets to default
+            boolean ok = audioTrack.setPreferredDevice(preferredOutputDevice); // null resets to default
+            // Logs the REQUESTED id (what was persisted) and the RESOLVED one separately --
+            // see MicRecorder's matching reinit log for why these can legitimately differ.
+            GeneralVariables.fileLog(String.format(
+                    "playFT8Signal: AudioTrack preferredDevice requestedId=%d resolvedId=%d ok=%b deviceFound=%b",
+                    GeneralVariables.audioOutputDeviceId,
+                    preferredOutputDevice == null ? -1 : preferredOutputDevice.getId(),
+                    ok, preferredOutputDevice != null));
         } else {
             applyDefaultOutputRoutingOverride(audioTrack);
         }
@@ -3312,7 +3319,12 @@ public class FT8TransmitSignal {
             int bufBytes = Math.max(targetBufBytes, minBuf > 0 ? minBuf : targetBufBytes);
             track = buildTxAudioTrack(tuneAttributes, tuneFormat, bufBytes, "TUNE");
             if (GeneralVariables.audioOutputDeviceId > 0) {
-                track.setPreferredDevice(tuneOutputDevice);
+                boolean ok = track.setPreferredDevice(tuneOutputDevice);
+                GeneralVariables.fileLog(String.format(
+                        "TUNE: AudioTrack preferredDevice requestedId=%d resolvedId=%d ok=%b deviceFound=%b",
+                        GeneralVariables.audioOutputDeviceId,
+                        tuneOutputDevice == null ? -1 : tuneOutputDevice.getId(),
+                        ok, tuneOutputDevice != null));
             } else {
                 applyDefaultOutputRoutingOverride(track);
             }

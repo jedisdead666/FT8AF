@@ -404,6 +404,16 @@ class ComposeMainActivity : AppCompatActivity() {
                     "baudRate=${GeneralVariables.baudRate}, " +
                     "controlMode=${GeneralVariables.controlMode}, " +
                     "connectMode=${GeneralVariables.connectMode}")
+                // Diagnostic (RX device-selection investigation): the value hydration
+                // actually read from the DB, BEFORE reinitializeAudioInput() below runs
+                // off it — settles whether a later audioInputDeviceId=0 at MicRecorder
+                // init means "never persisted / lost on restart" (this line also shows
+                // 0) or "persisted fine but something reset it afterward" (this line
+                // shows the real value).
+                fileLog("configLoaded: audioInputDeviceId=${GeneralVariables.audioInputDeviceId}, " +
+                    "audioOutputDeviceId=${GeneralVariables.audioOutputDeviceId}, " +
+                    "usbAudioInputVidPid=${GeneralVariables.usbAudioInputVendorId}:" +
+                    "${GeneralVariables.usbAudioInputProductId}")
                 if (GeneralVariables.autoUpdateGridFromGPS) {
                     val grid = MaidenheadGrid.getMyMaidenheadGrid(applicationContext)
                     if (grid.isNotEmpty()) {

@@ -360,3 +360,35 @@ interface (that runs the real `usb_audio_disconnect`). A genuine bus drop
 looks different: `usbDetach` for the hub, serial and audio devices together
 and `serial.send: port not open!` — that one is electrical (RF resetting the
 hub), not software.
+
+**5. On at least one phone's USB-audio HAL, RX capture and TX playback
+cannot share one USB rig at the same time.** Opening TX's `AudioTrack` while
+`MicRecorder`'s RX `AudioRecord` is still open on the same USB device fails
+at the ALSA proxy level, and every subsequent write is then silently
+dropped — the generated waveform can be full-scale all the way to
+`AudioTrack.write()` and still never reach the rig, with no exception and no
+error surfaced to the app. Tell from log (vendor tags, MediaTek-specific
+spelling, but the pattern generalizes): `AudioALSAPlaybackHandlerUsb: open(),
+proxy_open fail, ret -12` right after `alsa_device_proxy: proxy_open()
+pcm_is_ready() failed: cannot set hw params: I/O error`, then
+`AudioALSAPlaybackHandlerUsb: write(), mPcm is NULL!` repeated once per
+buffer for the rest of the transmission (thousands of lines on a 13 s over).
+Correlates exactly with whether `AudioALSACaptureHandlerUsb` is open at that
+moment — a reference app (QFT8) that drives the same radio to full output
+runs strictly half-duplex: it closes its USB capture, plays, then reopens
+capture, and its opens never fail. Fixed by doing the same thing around
+every "over"/TUNE key-down: `MainViewModel`'s shared `beginKeying()`/
+`endKeying()` (already the single choke point for PTT and SCO around TX, see
+items above) now calls `HamRecorder.pauseForTx()`/`resumeAfterTx()`, gated by
+`MainViewModel.shouldPauseRxCaptureForTx()`: only for the QRP Labs QMX, and
+only when RX is actually an Android capture session (not a LAN rig, not
+already USB-direct) on the *same* USB VID:PID as TX's output (not USB-direct
+output either, which is separately broken for unrelated reasons). Keep the
+QMX gate: a matching VID:PID alone is true for every single-cable USB rig
+(IC-7300, IC-705, IC-9700, FT-991A, Digirig, SignaLink...), and pausing RX
+there blanks the waterfall during TX and breaks full-duplex satellite
+monitoring for a HAL conflict that was only ever confirmed with a QMX.
+Widen it only on a confirmed report from another rig. Pauses nest (a tune
+carrier and an over can overlap), so `HamRecorder` counts them, and
+`MicRecorder.stopRecord()` joins the old reader thread so a quick
+resume can't leave two readers on one `AudioRecord`.
