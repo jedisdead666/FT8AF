@@ -317,7 +317,7 @@ fun LoggingSettings(
                                     "cloudlogDownloadQsos", if (checked) "1" else "0", null,
                                 )
                             },
-                            enabled = !cloudlogDownloadUnsupported(cloudlogCanList),
+                            enabled = cloudlogDownloadToggleEnabled(cloudlogCanList, cloudlogDownloadQsos),
                         )
                     }
                     SectionDivider()
@@ -847,6 +847,14 @@ internal fun filterStationLocationIdInput(previous: TextFieldValue, value: TextF
  * usable, since a sync against such a server just skips the download.
  */
 internal fun cloudlogDownloadUnsupported(canList: Boolean?): Boolean = canList == false
+
+/**
+ * Whether the toggle can be changed. Greyed out on a server with no QSO listing, except while
+ * it is still on (switched on before the check finished, or before the server changed), so it
+ * can always be turned off.
+ */
+internal fun cloudlogDownloadToggleEnabled(canList: Boolean?, on: Boolean): Boolean =
+    on || !cloudlogDownloadUnsupported(canList)
 
 /** Label for the chosen WRL logbook. A blank id is the account default; an id no longer listed shows raw. */
 internal fun wrlLogbookSelectionLabel(

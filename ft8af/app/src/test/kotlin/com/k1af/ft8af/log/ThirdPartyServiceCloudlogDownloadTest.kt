@@ -5,12 +5,15 @@ import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import com.k1af.ft8af.GeneralVariables
 import com.k1af.ft8af.database.DatabaseOpr
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import radio.ks3ckc.ft8af.pota.PotaSessionManager
+import radio.ks3ckc.ft8af.pota.model.PotaActivation
 
 /**
  * Two-way Wavelog sync (issue #965): with "Download QSOs from Wavelog when syncing" on, the
@@ -337,9 +340,13 @@ class ThirdPartyServiceCloudlogDownloadTest {
     @Test
     fun `a remote qso that only differs by band leaves the pending local row alone`() {
         // Same call, date, time and mode as a local row the matcher doesn't pair (other band):
-        // the import treats it as that row and updates it, so it must stay pending.
+        // the insert would treat it as that row, so it is skipped and the row stays pending
+        // and untouched.
         insertLocal("W1AW", band = "40m")
-        remotePages["1"] = mutableListOf(page(10, qso("W1AW", band = "20m")), emptyPage)
+        remotePages["1"] = mutableListOf(
+            page(10, qso("W1AW", band = "20m", extra = ""","GRIDSQUARE":"FN42","RST_RCVD":"+03"""")),
+            emptyPage,
+        )
         remotePages["2"] = mutableListOf(emptyPage)
 
         val result = sync()
@@ -347,8 +354,48 @@ class ThirdPartyServiceCloudlogDownloadTest {
         assertThat(result.cloudlogDownloaded).isEqualTo(0)
         assertThat(rows()).hasSize(1)
         assertThat(uploads).hasSize(1)
-        assertThat(rows().single()["synced_cloudlog"]).isEqualTo("1") // set by the upload, not the download
-        assertThat(rows().single()["synced_qrz"]).isEqualTo("0")
+        val row = rows().single()
+        assertThat(row["synced_cloudlog"]).isEqualTo("1") // set by the upload, not the download
+        assertThat(row["synced_qrz"]).isEqualTo("0")
+        // The other QSO's grid and report don't overwrite the local row's.
+        assertThat(row["band"]).isEqualTo("40m")
+        assertThat(row["gridsquare"]).isNull()
+        assertThat(row["rst_rcvd"]).isNull()
+        assertThat(row["isLotW_import"]).isEqualTo("0")
+    }
+
+    @Test
+    fun `a remote qso without a comment gets no import note`() {
+        remotePages["1"] = mutableListOf(page(10, qso("W1AW")), emptyPage)
+        remotePages["2"] = mutableListOf(emptyPage)
+
+        sync()
+
+        assertThat(rows().single()["comment"]).isEmpty()
+    }
+
+    @Test
+    fun `downloaded qsos are not stamped with a running pota activation`() {
+        val field = PotaSessionManager::class.java.getDeclaredField("_currentActivation")
+        field.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val current = field.get(PotaSessionManager) as MutableStateFlow<PotaActivation?>
+        current.value = PotaActivation(1, "US-1234", "K1AF", 0, null, 0, null)
+        try {
+            remotePages["1"] = mutableListOf(
+                page(10, qso("W1AW"), qso("W2AW", extra = ""","MY_SIG":"POTA","MY_SIG_INFO":"US-0001"""")),
+                emptyPage,
+            )
+            remotePages["2"] = mutableListOf(emptyPage)
+
+            sync()
+
+            val byCall = rows().associateBy { it["call"] }
+            assertThat(byCall["W1AW"]!!["my_sig_info"]).isNull()
+            assertThat(byCall["W2AW"]!!["my_sig_info"]).isEqualTo("US-0001")
+        } finally {
+            current.value = null
+        }
     }
 
     @Test

@@ -1504,6 +1504,16 @@ public class DatabaseOpr extends SQLiteOpenHelper {
 
     public boolean doInsertQSLData(QSLRecord record, AfterInsertQSLData afterInsertQSLData,
                                    boolean appendToAdifFile) {
+        return doInsertQSLData(record, afterInsertQSLData, appendToAdifFile, true);
+    }
+
+    /**
+     * As {@link #doInsertQSLData(QSLRecord, AfterInsertQSLData, boolean)}; {@code stampPota}
+     * false skips the POTA stamping, for QSOs downloaded from another log (issue #965), which
+     * were made before the activation now running.
+     */
+    public boolean doInsertQSLData(QSLRecord record, AfterInsertQSLData afterInsertQSLData,
+                                   boolean appendToAdifFile, boolean stampPota) {
         if (record.getToCallsign() == null) {
             if (afterInsertQSLData!=null){
                 afterInsertQSLData.doAfterInsert(true,true,false);//Invalid QSL: not written at all
@@ -1513,9 +1523,11 @@ public class DatabaseOpr extends SQLiteOpenHelper {
         // POTA: if an activation is running, stamp MY_SIG/MY_SIG_INFO; if the worked
         // station is currently spotted on pota.app, stamp SIG/SIG_INFO too (P2P case).
         // No-op when no activation/spot, so non-POTA contacts are unaffected.
-        radio.ks3ckc.ft8af.pota.PotaSessionManager.stampQso(
-                record,
-                radio.ks3ckc.ft8af.pota.PotaSpotsRepository.parkRefFor(record.getToCallsign()));
+        if (stampPota) {
+            radio.ks3ckc.ft8af.pota.PotaSessionManager.stampQso(
+                    record,
+                    radio.ks3ckc.ft8af.pota.PotaSpotsRepository.parkRefFor(record.getToCallsign()));
+        }
 
         String querySQL;
         if (!checkQSLCallsign(record)) {//If record doesn't exist, add it

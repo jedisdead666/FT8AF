@@ -733,8 +733,17 @@ public class ThirdPartyService {
      */
     public static SyncResult syncAllQSOs(DatabaseOpr opr, SyncProgress progress) {
         if (opr == null) return syncAllQSOs((SQLiteDatabase) null, progress);
-        SyncResult result = syncAllQSOs(opr.getDb(), progress,
-                (record, after) -> opr.doInsertQSLData(record, after, false));
+        SyncResult result = syncAllQSOs(opr.getDb(), progress, (record, after) -> {
+            // A remote QSO with the same call, date, time_on and mode as a local row the
+            // matcher didn't pair (another band, say) would make doInsertQSLData update that
+            // row with the remote QSO's grid and reports. Leave the local row alone instead.
+            if (opr.checkIsQSL(record)) {
+                after.doAfterInsert(false, false, false);
+                return;
+            }
+            // No POTA stamping: these QSOs predate any activation running now.
+            opr.doInsertQSLData(record, after, false, false);
+        });
         // New rows change who counts as worked before; reload the cache the decode list's
         // worked/needed highlighting reads, as a fresh app start would.
         if (result.cloudlogDownloaded > 0) opr.getAllQSLCallsigns();
@@ -776,7 +785,16 @@ public class ThirdPartyService {
         Set<Long> cloudlogPresentIds = null;
         if (cl && inserter != null && GeneralVariables.cloudlogDownloadQsos) {
             cloudlogPresentIds = new HashSet<>();
-            cloudlogDownloaded = downloadMissingFromCloudlog(db, inserter, cloudlogPresentIds);
+            StringBuilder downloadError = new StringBuilder();
+            cloudlogDownloaded = downloadMissingFromCloudlog(db, inserter, cloudlogPresentIds,
+                    downloadError);
+            if (cloudlogDownloaded < 0) {
+                // The local log couldn't be read, so nothing was paired: let the upload pass
+                // check for rows the logbook already has on its own (#936).
+                cloudlogPresentIds = null;
+                cloudlogDownloaded = 0;
+            }
+            if (downloadError.length() > 0) cloudlogError = downloadError.toString();
         }
         Cursor cursor = null;
         try {
@@ -879,10 +897,13 @@ public class ThirdPartyService {
      * <p>Does nothing when the server can't list its QSOs (plain Cloudlog); the upload pass
      * then sends every pending row, as it does when the remote log can't be read in #936.
      *
-     * @return the number of QSOs inserted
+     * @param errorOut gets a message for the sync dialog when the local log can't be read or
+     *                 an insert batch fails
+     * @return the number of QSOs inserted, or -1 when the local log couldn't be read (nothing
+     *         paired, so {@code presentIdsOut} says nothing)
      */
     static int downloadMissingFromCloudlog(SQLiteDatabase db, QsoInserter inserter,
-                                           Set<Long> presentIdsOut) {
+                                           Set<Long> presentIdsOut, StringBuilder errorOut) {
         CloudlogRemoteLog remote = fetchCloudlogRemoteLog(true);
         if (remote == null) return 0;
 
@@ -901,7 +922,9 @@ public class ThirdPartyService {
             }
         } catch (Exception e) {
             Log.e(TAG, "two-way sync: local log read failed: " + e.getClass().getSimpleName());
-            return 0;
+            errorOut.append("Download from Wavelog skipped: local log read failed (")
+                    .append(e.getClass().getSimpleName()).append(')');
+            return -1;
         } finally {
             if (c != null) c.close();
         }
@@ -910,7 +933,7 @@ public class ThirdPartyService {
         for (int i : pairing.presentLocals) {
             if (pending.get(i)) presentIdsOut.add(ids.get(i));
         }
-        int inserted = insertRemoteQsos(db, inserter, pairing.unmatchedRemote);
+        int inserted = insertRemoteQsos(db, inserter, pairing.unmatchedRemote, errorOut);
         GeneralVariables.fileLog("Cloudlog: downloaded " + inserted + " of "
                 + pairing.unmatchedRemote.size() + " QSOs missing from the local log");
         return inserted;
@@ -923,10 +946,13 @@ public class ThirdPartyService {
      * updates that row and is neither counted nor marked, so a local row still waiting to be
      * uploaded stays pending.
      *
+     * <p>A QSO without a COMMENT is stored with an empty one, not the ADIF import's
+     * "imported at ..." note: it was logged elsewhere, not imported by the user.
+     *
      * @return the number of rows inserted
      */
     static int insertRemoteQsos(SQLiteDatabase db, QsoInserter inserter,
-                                List<Map<String, String>> records) {
+                                List<Map<String, String>> records, StringBuilder errorOut) {
         int inserted = 0;
         for (int start = 0; start < records.size(); start += IMPORT_BATCH_SIZE) {
             int end = Math.min(records.size(), start + IMPORT_BATCH_SIZE);
@@ -934,7 +960,9 @@ public class ThirdPartyService {
             db.beginTransaction();
             try {
                 for (int i = start; i < end; i++) {
-                    QSLRecord record = new QSLRecord(new HashMap<>(records.get(i)));
+                    HashMap<String, String> fields = new HashMap<>(records.get(i));
+                    if (!fields.containsKey("COMMENT")) fields.put("COMMENT", "");
+                    QSLRecord record = new QSLRecord(fields);
                     boolean[] isNew = {false};
                     inserter.insert(record, (invalid, newQsl, hasWarning) -> isNew[0] = newQsl && !invalid);
                     if (isNew[0]) {
@@ -950,6 +978,8 @@ public class ThirdPartyService {
                         + " " + e.getMessage());
                 GeneralVariables.fileLog("Cloudlog: download insert failed: "
                         + e.getClass().getSimpleName());
+                errorOut.append("Download from Wavelog stopped after ").append(inserted)
+                        .append(" QSOs: ").append(e.getClass().getSimpleName());
                 return inserted;
             } finally {
                 db.endTransaction();
